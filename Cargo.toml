@@ -1,0 +1,12 @@
+[package]
+name = "likelike"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.58"
+chrono = "0.4.23"
+clap = { version = "4.0.26", features = ["wrap_help"] }
+comrak = "0.15.0"
+eyre = "0.6.8"
+sqlx = { version = "0.6.2", features = ["sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
