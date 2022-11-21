@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-stream = "0.3.3"
 async-trait = "0.1.58"
 chrono = "0.4.23"
 clap = { version = "4.0.26", features = ["wrap_help"] }
 comrak = "0.15.0"
 eyre = "0.6.8"
-sqlx = { version = "0.6.2", features = ["sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
+futures = "0.3.25"
+include_dir = "0.7.3"
+pin-project = "1.0.12"
+reqwest = { version = "0.11.13", features = ["deflate", "gzip", "brotli"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.87"
+sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
+tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }

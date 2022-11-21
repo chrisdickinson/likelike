@@ -1,0 +1,131 @@
+{
+  "db": "SQLite",
+  "13f2b5831d382a11db86538fd39272fd7de8d098c82a80b3609d501fa11198fd": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 7
+      }
+    },
+    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                url\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            )\n            "
+  },
+  "83db1740720e35680901e1ba15fcdced50a54350907e7d1f722d6beb6f899f57": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 7
+      }
+    },
+    "query": "\n            UPDATE \"links\" SET\n                title = ?,\n                tags = json(?),\n                via = ?,\n                notes = ?,\n                found_at = ?,\n                read_at = ?\n            WHERE \"url\" = ?\n            "
+  },
+  "8e48ad8c0aedc27ee27e44faa2bb9b6f0354eb0ba4fb3f7b17df456e332a2f15": {
+    "describe": {
+      "columns": [
+        {
+          "name": "url",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "title",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "tags",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "via",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "notes",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "found_at",
+          "ordinal": 5,
+          "type_info": "Int64"
+        },
+        {
+          "name": "read_at",
+          "ordinal": 6,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at\n                FROM \"links\"\n                "
+  },
+  "d35249dd200267fb1cb2c7e622d9dc633a986132fd3aced6a887461bca7f6e2d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "url",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "title",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "tags",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "via",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "notes",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "found_at",
+          "ordinal": 5,
+          "type_info": "Int64"
+        },
+        {
+          "name": "read_at",
+          "ordinal": 6,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at\n            FROM \"links\" WHERE \"url\" = ?"
+  }
+}
