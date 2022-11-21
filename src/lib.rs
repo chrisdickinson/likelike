@@ -243,6 +243,54 @@ impl ReadLinkInformation for SqliteStore {
 }
 
 impl SqliteStore {
+    async fn values(&self) -> eyre::Result<Pin<Box<impl Stream<Item = Link> + '_>>> {
+        let mut sqlite = self.sqlite.lock().await;
+
+        let stream = stream! {
+            let input = sqlx::query!(
+                r#"
+                SELECT
+                    url,
+                    title,
+                    tags,
+                    via,
+                    notes,
+                    found_at,
+                    read_at
+                FROM "links"
+                "#,
+            )
+            .fetch(&mut *sqlite);
+
+            for await value in input {
+                let Ok(value) = value else { continue };
+
+                let found_at = value
+                    .found_at
+                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+
+                let read_at = value
+                    .read_at
+                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+
+                let Ok(tags) = serde_json::from_str(&value.tags[..]) else { continue };
+
+                yield Link {
+                    url: value.url,
+                    title: value.title,
+                    tags,
+                    via: value
+                        .via
+                        .and_then(|via| serde_json::from_str(&via[..]).ok()),
+                    notes: value.notes,
+                    found_at,
+                    read_at,
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
+    }
     fn entries(self) -> Pin<Box<impl Stream<Item = Link>>> {
         let mut sqlite = self.sqlite.into_inner();
 
@@ -549,7 +597,7 @@ mod tests {
         )
         .await?;
 
-        let mut s = store.entries();
+        let mut s = store.values().await?;
 
         while let Some(v) = s.next().await {
             dbg!(v);
