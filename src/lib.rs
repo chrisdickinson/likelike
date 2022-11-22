@@ -9,7 +9,7 @@ use comrak::{
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::{Stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 use include_dir::{include_dir, Dir};
 use sqlx::{Connection, SqliteConnection};
 use std::{
@@ -23,6 +23,7 @@ use tokio::sync::{Mutex, MutexGuard};
 #[async_trait::async_trait]
 pub trait ReadLinkInformation {
     async fn get(&self, link: &str) -> eyre::Result<Option<Link>>;
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>>;
 }
 
 #[async_trait::async_trait]
@@ -71,6 +72,12 @@ impl ReadLinkInformation for InMemoryStore {
         let data = self.data.lock().await;
 
         Ok(data.get(link).map(|l| l.clone()))
+    }
+
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+        let data = self.data.lock().await;
+        let values: Vec<_> = data.values().cloned().collect();
+        Ok(Box::pin(stream::iter(values.into_iter())))
     }
 }
 
@@ -239,6 +246,55 @@ impl ReadLinkInformation for SqliteStore {
             found_at,
             read_at,
         }))
+    }
+
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+        let mut sqlite = self.sqlite.lock().await;
+
+        let stream = stream! {
+            let input = sqlx::query!(
+                r#"
+                SELECT
+                    url,
+                    title,
+                    tags,
+                    via,
+                    notes,
+                    found_at,
+                    read_at
+                FROM "links"
+                "#,
+            )
+            .fetch(&mut *sqlite);
+
+            for await value in input {
+                let Ok(value) = value else { continue };
+
+                let found_at = value
+                    .found_at
+                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+
+                let read_at = value
+                    .read_at
+                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+
+                let Ok(tags) = serde_json::from_str(&value.tags[..]) else { continue };
+
+                yield Link {
+                    url: value.url,
+                    title: value.title,
+                    tags,
+                    via: value
+                        .via
+                        .and_then(|via| serde_json::from_str(&via[..]).ok()),
+                    notes: value.notes,
+                    found_at,
+                    read_at,
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 }
 
