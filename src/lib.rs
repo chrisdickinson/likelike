@@ -9,7 +9,7 @@ use comrak::{
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream};
 use include_dir::{include_dir, Dir};
 use sqlx::{Connection, SqliteConnection};
 use std::{
@@ -19,7 +19,7 @@ use std::{
     fmt::Debug,
     pin::Pin,
 };
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 #[async_trait::async_trait]
 pub trait ReadLinkInformation {
     async fn get(&self, link: &str) -> eyre::Result<Option<Link>>;
@@ -612,8 +612,6 @@ fn fmt_cmark<'a>(node: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use futures::pin_mut;
-
     use super::*;
 
     #[tokio::test]
