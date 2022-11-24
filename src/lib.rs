@@ -88,8 +88,7 @@ where
     let links = root
         .children()
         .filter(|c| matches!(c.data.borrow().value, NodeValue::List(_)))
-        .map(|c| c.children())
-        .flatten()
+        .flat_map(|c| c.children())
         .filter(|c| {
             matches!(
                 c.data.borrow().value,
@@ -97,7 +96,7 @@ where
             )
         })
         .filter_map(|list_item_node| {
-            let mut children = list_item_node.children().into_iter();
+            let mut children = list_item_node.children();
 
             if let Some(para) = children.next() {
                 if !matches!(para.data.borrow().value, NodeValue::Paragraph) {
@@ -113,7 +112,7 @@ where
                         continue;
                     }
 
-                    if let Err(_) = extract_metadata_from_child_list(&mut link, child) {
+                    if extract_metadata_from_child_list(&mut link, child).is_err() {
                         continue;
                     }
                 }
@@ -152,11 +151,11 @@ fn extract_metadata_from_child_list<'a>(
         let Ok(first_child_text) = fmt_cmark(first_child) else { continue };
 
         // TODO: actually handle these things!
-        match first_child_text.split(":").next() {
+        match first_child_text.split(':').next() {
             Some("tags") => {
-                let mut tags: HashSet<_> = (&first_child_text["tags:".len()..])
+                let mut tags: HashSet<_> = first_child_text["tags:".len()..]
                     .trim()
-                    .split(",")
+                    .split(',')
                     .map(|xs| xs.trim().to_string())
                     .collect();
 
@@ -171,7 +170,7 @@ fn extract_metadata_from_child_list<'a>(
                             tags.extend(
                                 list_item_graf_text
                                     .trim()
-                                    .split(",")
+                                    .split(',')
                                     .map(|xs| xs.trim().to_string()),
                             );
                         }
@@ -181,7 +180,7 @@ fn extract_metadata_from_child_list<'a>(
                 link.tags.extend(tags);
             }
             Some("via") => {
-                link.via = Some(parse_via(&first_child_text["via:".len()..].trim()));
+                link.via = Some(parse_via(first_child_text["via:".len()..].trim()));
             }
             Some("notes") => {
                 if let Some(child) = list_item_children.next() {
@@ -191,8 +190,7 @@ fn extract_metadata_from_child_list<'a>(
 
                     let mut notes: String = child
                         .children()
-                        .map(|list_item| list_item.children())
-                        .flatten()
+                        .flat_map(|list_item| list_item.children())
                         .filter_map(|node| fmt_cmark(node).ok())
                         .collect();
 
@@ -222,6 +220,8 @@ fn parse_via(text: &str) -> Via {
 }
 
 fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<Link> {
+    // clippy is wrong, here! if we don't find what we're looking for on an element, we `continue`!
+    #[allow(clippy::never_loop)]
     for child in graf.children() {
         let NodeValue::Link(NodeLink { ref url, ref title }) = child.data.borrow().value else {
             continue
@@ -243,11 +243,8 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
     }
 
     let content = fmt_cmark(graf)?;
-    let text = if content.starts_with("\\[ \\]") {
-        &content[5..]
-    } else {
-        content.as_str()
-    };
+
+    let text = content.strip_prefix("\\[ \\]").unwrap_or(content.as_str());
 
     let mut indent = 0;
 
@@ -255,10 +252,10 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
         match piece {
             "https" | "http" => {
                 let title = text[0..indent]
-                    .trim_start_matches(&['-', ':', ' ', '\t'])
+                    .trim_start_matches(['-', ':', ' ', '\t'])
                     .trim_end_matches(&['-', ':', ' ', '\t']);
 
-                let mut url_bits = text[indent..].trim().split_whitespace();
+                let mut url_bits = text[indent..].split_whitespace();
 
                 let Some(url) = url_bits.next() else { continue };
 
@@ -271,7 +268,7 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
                 };
 
                 return Ok(Link {
-                    title: title.to_string(),
+                    title,
                     url: url.replace('\\', ""),
                     ..Default::default()
                 });
