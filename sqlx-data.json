@@ -10,17 +10,7 @@
     },
     "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                url\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            )\n            "
   },
-  "83db1740720e35680901e1ba15fcdced50a54350907e7d1f722d6beb6f899f57": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 7
-      }
-    },
-    "query": "\n            UPDATE \"links\" SET\n                title = ?,\n                tags = json(?),\n                via = ?,\n                notes = ?,\n                found_at = ?,\n                read_at = ?\n            WHERE \"url\" = ?\n            "
-  },
-  "8e48ad8c0aedc27ee27e44faa2bb9b6f0354eb0ba4fb3f7b17df456e332a2f15": {
+  "9864c1f090fca9f49f8ff88f9d4e755385566f7201e0e8ea18d1c90733a4ad53": {
     "describe": {
       "columns": [
         {
@@ -57,59 +47,10 @@
           "name": "read_at",
           "ordinal": 6,
           "type_info": "Int64"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true
-      ],
-      "parameters": {
-        "Right": 0
-      }
-    },
-    "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at\n                FROM \"links\"\n                "
-  },
-  "d35249dd200267fb1cb2c7e622d9dc633a986132fd3aced6a887461bca7f6e2d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "url",
-          "ordinal": 0,
-          "type_info": "Text"
         },
         {
-          "name": "title",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "tags",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "via",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "notes",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "found_at",
-          "ordinal": 5,
-          "type_info": "Int64"
-        },
-        {
-          "name": "read_at",
-          "ordinal": 6,
+          "name": "published_at",
+          "ordinal": 7,
           "type_info": "Int64"
         }
       ],
@@ -117,6 +58,7 @@
         false,
         false,
         false,
+        true,
         true,
         true,
         true,
@@ -126,6 +68,76 @@
         "Right": 1
       }
     },
-    "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at\n            FROM \"links\" WHERE \"url\" = ?"
+    "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                published_at\n            FROM \"links\" WHERE \"url\" = ?"
+  },
+  "cf6c5167cb039c6f3ab27f5e8b488d7f81180ee1c5d8bd88441cd6b6f8fe1821": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 8
+      }
+    },
+    "query": "\n            UPDATE \"links\" SET\n                title = ?,\n                tags = json(?),\n                via = ?,\n                notes = ?,\n                found_at = ?,\n                read_at = ?,\n                published_at = ?\n            WHERE \"url\" = ?\n            "
+  },
+  "f9505412ac217c93d08a5a5d442751a4116cd51f6653ca74f707268ab54b78da": {
+    "describe": {
+      "columns": [
+        {
+          "name": "url",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "title",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "tags",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "via",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "notes",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "found_at",
+          "ordinal": 5,
+          "type_info": "Int64"
+        },
+        {
+          "name": "read_at",
+          "ordinal": 6,
+          "type_info": "Int64"
+        },
+        {
+          "name": "published_at",
+          "ordinal": 7,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at,\n                    published_at\n                FROM \"links\"\n                "
   }
 }

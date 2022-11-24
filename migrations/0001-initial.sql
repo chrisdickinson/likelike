@@ -12,5 +12,6 @@ create table if not exists "links" (
   via text default(null),
   notes text default(null),
   found_at integer(8) default(null),
-  read_at integer(8) default(null)
+  read_at integer(8) default(null),
+  published_at integer(8) default(null)
 );
