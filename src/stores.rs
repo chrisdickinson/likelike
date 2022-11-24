@@ -81,6 +81,28 @@ impl<T: Send + Sync> FetchLinkMetadata for HttpClientWrap<T> {
     }
 }
 
+#[async_trait::async_trait]
+impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for HttpClientWrap<T> {
+    async fn get(&self, link: &str) -> eyre::Result<Option<Link>> {
+        self.inner.get(link).await
+    }
+
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+        self.inner.values().await
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: WriteLinkInformation + Send + Sync> WriteLinkInformation for HttpClientWrap<T> {
+    async fn update(&self, link: &Link) -> eyre::Result<bool> {
+        self.inner.update(link).await
+    }
+
+    async fn create(&self, link: &Link) -> eyre::Result<bool> {
+        self.inner.create(link).await
+    }
+}
+
 pub struct DummyWrap<T> {
     inner: T,
 }
@@ -226,7 +248,8 @@ impl WriteLinkInformation for SqliteStore {
                 notes = ?,
                 found_at = ?,
                 read_at = ?,
-                published_at = ?
+                published_at = ?,
+                from_filename = ?
             WHERE "url" = ?
             "#,
             link.title,
@@ -236,6 +259,7 @@ impl WriteLinkInformation for SqliteStore {
             found_at,
             read_at,
             link.published_at,
+            link.from_filename,
             link.url
         )
         .execute(&mut *sqlite)
@@ -261,8 +285,10 @@ impl WriteLinkInformation for SqliteStore {
                 notes,
                 found_at,
                 read_at,
+                from_filename,
                 url
             ) VALUES (
+                ?,
                 ?,
                 ?,
                 ?,
@@ -278,6 +304,7 @@ impl WriteLinkInformation for SqliteStore {
             link.notes,
             found_at,
             read_at,
+            link.from_filename,
             link.url
         )
         .execute(&mut *sqlite)
@@ -301,7 +328,8 @@ impl ReadLinkInformation for SqliteStore {
                 notes,
                 found_at,
                 read_at,
-                published_at
+                published_at,
+                from_filename
             FROM "links" WHERE "url" = ?"#,
             link
         )
@@ -331,6 +359,7 @@ impl ReadLinkInformation for SqliteStore {
             found_at,
             read_at,
             published_at,
+            from_filename: value.from_filename,
         }))
     }
 
@@ -348,7 +377,8 @@ impl ReadLinkInformation for SqliteStore {
                     notes,
                     found_at,
                     read_at,
-                    published_at
+                    published_at,
+                    from_filename
                 FROM "links"
                 "#,
             )
@@ -365,6 +395,10 @@ impl ReadLinkInformation for SqliteStore {
                     .read_at
                     .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
+                let published_at = value
+                    .published_at
+                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
+
                 let Ok(tags) = serde_json::from_str(&value.tags[..]) else { continue };
 
                 yield Link {
@@ -377,7 +411,8 @@ impl ReadLinkInformation for SqliteStore {
                     notes: value.notes,
                     found_at,
                     read_at,
-                    published_at: None,
+                    published_at,
+                    from_filename: value.from_filename,
                 }
             }
         };

@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use chrono::Utc;
 use comrak::{
     self,
     arena_tree::Node,
@@ -40,24 +39,28 @@ pub trait FetchLinkMetadata {
     async fn fetch(&self, link: &Link) -> eyre::Result<Option<(Self::Headers, Self::Body)>>;
 }
 
-async fn insert_link<Store>(mut link: Link, store: &Store) -> eyre::Result<bool>
+async fn insert_link<Store>(
+    mut link: Link,
+    store: &Store,
+    link_source: &LinkSource<'_>,
+) -> eyre::Result<bool>
 where
     Store: FetchLinkMetadata + ReadLinkInformation + WriteLinkInformation + Send + Sync,
 {
     if let Some(known_link) = store.get(link.url.as_str()).await? {
-        link.read_at = known_link
-            .read_at
-            .or_else(|| link.notes.as_ref().map(|_| Utc::now()));
-
-        link.found_at = known_link.found_at.or_else(|| Some(Utc::now()));
+        link.read_at = known_link.read_at.or(link_source.created);
+        link.found_at = known_link.found_at.or(link_source.created);
+        link.from_filename = known_link
+            .from_filename
+            .or_else(|| link_source.filename_string());
 
         store.update(&link).await
     } else {
-        let now = Utc::now();
-        link.found_at = Some(now);
+        link.found_at = link_source.created;
+        link.from_filename = link_source.filename_string();
 
         if link.notes.is_some() {
-            link.read_at = Some(now);
+            link.read_at = link_source.created;
         }
 
         if let Some((headers, body)) = store.fetch(&link).await? {
@@ -70,15 +73,17 @@ where
     }
 }
 
-pub async fn process_input<S, Store>(input: S, store: &Store) -> eyre::Result<()>
+pub async fn process_input<'a, S, Store>(input: S, store: &Store) -> eyre::Result<()>
 where
-    S: AsRef<str>,
+    S: Into<LinkSource<'a>> + Send + Sync,
     Store: FetchLinkMetadata + ReadLinkInformation + WriteLinkInformation + Send + Sync,
 {
     let arena = Arena::new();
     let opts = ComrakOptions::default();
 
-    let root = parse_document(&arena, input.as_ref(), &opts);
+    let link_source = input.into();
+
+    let root = parse_document(&arena, link_source.content.as_ref(), &opts);
 
     let links = root
         .children()
@@ -120,7 +125,7 @@ where
         });
 
     for link in links {
-        insert_link(link, store).await?;
+        insert_link(link, store, &link_source).await?;
     }
 
     Ok(())
@@ -237,23 +242,48 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
         });
     }
 
-    let text = fmt_cmark(graf)?;
-    let mut pieces = text.split(&['-', ':'][..]);
-    Ok(match pieces.next() {
-        Some("https") | Some("http") => Link {
-            title: String::new(),
-            url: text.trim().to_string(),
-            ..Default::default()
-        },
+    let content = fmt_cmark(graf)?;
+    let text = if content.starts_with("\\[ \\]") {
+        &content[5..]
+    } else {
+        content.as_str()
+    };
 
-        Some(t) => Link {
-            title: text.to_string(),
-            url: text[t.len() + 1..].trim().to_string(),
-            ..Default::default()
-        },
+    let mut indent = 0;
 
-        None => return Err(eyre::eyre!("empty paragraph, no link")),
-    })
+    for piece in text.split(&['-', ':', ' '][..]) {
+        match piece {
+            "https" | "http" => {
+                let title = text[0..indent]
+                    .trim_start_matches(&['-', ':', ' ', '\t'])
+                    .trim_end_matches(&['-', ':', ' ', '\t']);
+
+                let mut url_bits = text[indent..].trim().split_whitespace();
+
+                let Some(url) = url_bits.next() else { continue };
+
+                let title = if title.is_empty() {
+                    // this handles the case where SOME reckless person wrote their
+                    // links like "https://url.great (but hey here is the title lol sorry)"
+                    text[indent..].trim()[url.len()..].to_string()
+                } else {
+                    title.to_string()
+                };
+
+                return Ok(Link {
+                    title: title.to_string(),
+                    url: url.replace('\\', ""),
+                    ..Default::default()
+                });
+            }
+
+            t => {
+                indent += piece.len() + 1;
+            }
+        }
+    }
+
+    Err(eyre::eyre!("empty paragraph, no link"))
 }
 
 fn fmt_cmark<'a>(node: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<String> {
@@ -264,6 +294,7 @@ fn fmt_cmark<'a>(node: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::ReadLinkInformation;
     use super::*;
     use futures::StreamExt;
 

@@ -13,5 +13,6 @@ create table if not exists "links" (
   notes text default(null),
   found_at integer(8) default(null),
   read_at integer(8) default(null),
-  published_at integer(8) default(null)
+  published_at integer(8) default(null),
+  from_filename text default(null)
 );

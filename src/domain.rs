@@ -1,5 +1,61 @@
-use chrono::{DateTime, Utc};
-use std::{collections::HashSet, fmt::Debug};
+use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
+use std::fs::read_to_string;
+use std::{borrow::Cow, collections::HashSet, fmt::Debug, path::Path};
+
+#[derive(Debug)]
+pub struct LinkSource<'a> {
+    pub(crate) filename: Option<Cow<'a, str>>,
+    pub(crate) created: Option<DateTime<Utc>>,
+    pub(crate) content: Cow<'a, str>,
+}
+
+impl<'a> LinkSource<'a> {
+    pub fn new(
+        filename: Option<&'a Path>,
+        created: Option<DateTime<Utc>>,
+        content: Cow<'a, str>,
+    ) -> Self {
+        Self {
+            filename: filename.map(|xs| xs.to_string_lossy()),
+            created,
+            content,
+        }
+    }
+
+    pub fn from_path<'b: 'a>(p: &'b Path) -> eyre::Result<Self> {
+        // Example input: "20220115-link-dump.md"
+        let mut created = None;
+
+        'a: {
+            let Some(filename) = p.file_name() else { break 'a };
+            let Some(filename) = filename.to_str() else { break 'a };
+            let Some(maybe_date) = filename.split('-').next() else { break 'a };
+            let Ok(date) = NaiveDate::parse_from_str(maybe_date, "%Y%m%d") else { break 'a };
+            let Some(datetime) = date.and_hms_milli_opt(0, 0, 0, 0) else { break 'a };
+            let Some(datetime) = Local.from_local_datetime(&datetime).latest() else { break 'a };
+
+            created.replace(DateTime::<Utc>::from(datetime));
+        }
+
+        let content: Cow<'_, str> = Cow::Owned(read_to_string(p)?);
+
+        Ok(Self {
+            filename: Some(p.to_string_lossy()),
+            content,
+            created,
+        })
+    }
+
+    pub fn filename_string(&self) -> Option<String> {
+        self.filename.as_ref().map(|xs| xs.to_string())
+    }
+}
+
+impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
+    fn from(xs: &'outer str) -> Self {
+        LinkSource::new(None, Some(Utc::now()), Cow::Borrowed(xs))
+    }
+}
 
 /// A structure representing metadata about a link from a link dump file.
 ///
@@ -18,6 +74,7 @@ pub struct Link {
     pub(crate) found_at: Option<DateTime<Utc>>,
     pub(crate) read_at: Option<DateTime<Utc>>,
     pub(crate) published_at: Option<DateTime<Utc>>,
+    pub(crate) from_filename: Option<String>,
 }
 
 impl Link {
@@ -83,6 +140,10 @@ impl Link {
 
     pub fn published_at(&self) -> Option<DateTime<Utc>> {
         self.published_at
+    }
+
+    pub fn from_filename(&self) -> Option<&String> {
+        self.from_filename.as_ref()
     }
 }
 
