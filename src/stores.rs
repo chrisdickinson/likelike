@@ -12,12 +12,12 @@ use tokio::sync::Mutex;
 
 use crate::{FetchLinkMetadata, Link, ReadLinkInformation, WriteLinkInformation};
 
-pub struct ReqwestWrap<T> {
+pub struct HttpClientWrap<T> {
     client: Client,
     inner: T,
 }
 
-impl<T> ReqwestWrap<T> {
+impl<T> HttpClientWrap<T> {
     pub fn new(client: Client, inner: T) -> Self {
         Self { client, inner }
     }
@@ -44,7 +44,7 @@ impl<T> ReqwestWrap<T> {
 }
 
 #[async_trait::async_trait]
-impl<T: Send + Sync> FetchLinkMetadata for ReqwestWrap<T> {
+impl<T: Send + Sync> FetchLinkMetadata for HttpClientWrap<T> {
     type Headers = HeaderMap;
     type Body = Pin<Box<dyn Stream<Item = bytes::Bytes>>>;
 
@@ -85,6 +85,12 @@ pub struct DummyWrap<T> {
     inner: T,
 }
 
+impl<T> DummyWrap<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
 #[async_trait::async_trait]
 impl<T: Send + Sync> FetchLinkMetadata for DummyWrap<T> {
     type Headers = HeaderMap;
@@ -96,7 +102,7 @@ impl<T: Send + Sync> FetchLinkMetadata for DummyWrap<T> {
 }
 
 #[async_trait::async_trait]
-impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for ReqwestWrap<T> {
+impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for DummyWrap<T> {
     async fn get(&self, link: &str) -> eyre::Result<Option<Link>> {
         self.inner.get(link).await
     }
@@ -107,7 +113,7 @@ impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for ReqwestWrap<T
 }
 
 #[async_trait::async_trait]
-impl<T: WriteLinkInformation + Send + Sync> WriteLinkInformation for ReqwestWrap<T> {
+impl<T: WriteLinkInformation + Send + Sync> WriteLinkInformation for DummyWrap<T> {
     async fn update(&self, link: &Link) -> eyre::Result<bool> {
         self.inner.update(link).await
     }
@@ -208,6 +214,9 @@ impl WriteLinkInformation for SqliteStore {
         let mut sqlite = self.sqlite.lock().await;
         let tags = serde_json::to_string(&link.tags)?;
         let via = serde_json::to_string(&link.via)?;
+        let found_at = link.found_at.map(|xs| xs.timestamp_millis());
+        let read_at = link.read_at.map(|xs| xs.timestamp_millis());
+
         let results = sqlx::query!(
             r#"
             UPDATE "links" SET
@@ -224,8 +233,8 @@ impl WriteLinkInformation for SqliteStore {
             tags,
             via,
             link.notes,
-            link.found_at,
-            link.read_at,
+            found_at,
+            read_at,
             link.published_at,
             link.url
         )
@@ -239,6 +248,10 @@ impl WriteLinkInformation for SqliteStore {
         let mut sqlite = self.sqlite.lock().await;
         let tags = serde_json::to_string(&link.tags)?;
         let via = serde_json::to_string(&link.via)?;
+
+        let found_at = link.found_at.map(|xs| xs.timestamp_millis());
+        let read_at = link.read_at.map(|xs| xs.timestamp_millis());
+
         let results = sqlx::query!(
             r#"
             INSERT INTO "links" (
@@ -263,8 +276,8 @@ impl WriteLinkInformation for SqliteStore {
             tags,
             via,
             link.notes,
-            link.found_at,
-            link.read_at,
+            found_at,
+            read_at,
             link.url
         )
         .execute(&mut *sqlite)
@@ -297,15 +310,15 @@ impl ReadLinkInformation for SqliteStore {
 
         let found_at = value
             .found_at
-            .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+            .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
         let read_at = value
             .read_at
-            .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+            .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
         let published_at = value
             .published_at
-            .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+            .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
         Ok(Some(Link {
             url: value.url,
@@ -346,11 +359,11 @@ impl ReadLinkInformation for SqliteStore {
 
                 let found_at = value
                     .found_at
-                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
                 let read_at = value
                     .read_at
-                    .and_then(|xs| Utc.timestamp_opt(xs, 0).latest());
+                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
                 let Ok(tags) = serde_json::from_str(&value.tags[..]) else { continue };
 

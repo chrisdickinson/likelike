@@ -269,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     async fn it_works() -> eyre::Result<()> {
-        let store = super::ReqwestWrap::wrap(SqliteStore::new().await);
+        let store = super::HttpClientWrap::wrap(SqliteStore::new().await);
 
         process_input(
             r#"
