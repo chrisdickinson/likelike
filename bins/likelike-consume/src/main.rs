@@ -4,7 +4,7 @@ use tokio::fs::read_to_string;
 
 use clap::Parser;
 use likelike::{
-    process_input, DummyWrap, HttpClientWrap as _, LinkSource, ReadLinkInformation, SqliteStore,
+    process_input, DummyWrap, HttpClientWrap, LinkSource, ReadLinkInformation, SqliteStore,
 };
 
 /// Simple program to greet a person
@@ -19,7 +19,7 @@ async fn main() -> eyre::Result<()> {
     let cli = Args::parse();
 
     let store = SqliteStore::new().await;
-    let store = DummyWrap::new(store);
+    let store = HttpClientWrap::wrap(store);
     for file in cli.files {
         eprintln!("file={:?}", file);
         let Ok(link_source) = LinkSource::from_path(file.as_path()) else { continue };
