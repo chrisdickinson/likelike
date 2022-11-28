@@ -7,9 +7,13 @@ use comrak::{
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::Stream;
+use futures::{future::join_all, Stream};
 use reqwest::header::HeaderMap;
-use std::{cell::RefCell, collections::HashSet, pin::Pin};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    pin::Pin,
+};
 
 mod domain;
 mod stores;
@@ -73,6 +77,40 @@ where
     }
 }
 
+async fn enrich_link<Store>(
+    mut link: Link,
+    store: &Store,
+    link_source: &LinkSource<'_>,
+) -> eyre::Result<(Link, bool)>
+where
+    Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
+{
+    let update = if let Some(known_link) = store.get(link.url.as_str()).await? {
+        link.read_at = known_link.read_at.or(link_source.created);
+        link.found_at = known_link.found_at.or(link_source.created);
+        link.from_filename = known_link
+            .from_filename
+            .or_else(|| link_source.filename_string());
+        true
+    } else {
+        link.found_at = link_source.created;
+        link.from_filename = link_source.filename_string();
+
+        if link.notes.is_some() {
+            link.read_at = link_source.created;
+        }
+
+        if let Some((headers, body)) = store.fetch(&link).await? {
+            if let Ok(headers) = headers.try_into() {
+                eprintln!("{} => {:?}", link.url, headers);
+            }
+        }
+        false
+    };
+
+    Ok((link, update))
+}
+
 pub async fn process_input<'a, S, Store>(input: S, store: &Store) -> eyre::Result<()>
 where
     S: Into<LinkSource<'a>> + Send + Sync,
@@ -121,10 +159,27 @@ where
             } else {
                 None
             }
+        })
+        .fold(HashMap::new(), |mut acc, link| {
+            if !acc.contains_key(&link.url) {
+                acc.insert(link.url.clone(), link);
+            }
+
+            acc
         });
 
-    for link in links {
-        insert_link(link, store, &link_source).await?;
+    let links = links
+        .into_values()
+        .map(|link| enrich_link(link, store, &link_source));
+
+    for result in join_all(links).await {
+        let Ok((link, should_update)) = result else { continue };
+
+        if should_update {
+            store.update(&link).await?;
+        } else {
+            store.create(&link).await?;
+        }
     }
 
     Ok(())

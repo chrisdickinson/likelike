@@ -7,7 +7,7 @@ use futures::{stream, Stream};
 use include_dir::{include_dir, Dir};
 use reqwest::{header::HeaderMap, redirect::Policy, Client, ClientBuilder};
 use sqlx::{Connection, SqliteConnection};
-use std::{collections::HashMap, env, fmt::Debug, pin::Pin};
+use std::{collections::HashMap, env, fmt::Debug, pin::Pin, time::Duration};
 use tokio::sync::Mutex;
 
 use crate::{FetchLinkMetadata, Link, ReadLinkInformation, WriteLinkInformation};
@@ -30,9 +30,15 @@ impl<T> HttpClientWrap<T> {
             .and_then(|xs| xs.parse().ok())
             .unwrap_or(10);
 
+        let timeout: u64 = std::env::var("LIKELIKE_REQUEST_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|xs| xs.parse().ok())
+            .unwrap_or(15);
+
         let client = ClientBuilder::new()
             .redirect(Policy::limited(max_redirects))
             .user_agent(agent)
+            .timeout(Duration::new(timeout, 0))
             .gzip(true)
             .brotli(true)
             .deflate(true)
