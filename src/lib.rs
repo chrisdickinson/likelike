@@ -7,7 +7,7 @@ use comrak::{
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::{future::join_all, Stream};
+use futures::{future::join_all, Stream, TryFutureExt};
 use reqwest::header::HeaderMap;
 use std::{
     cell::RefCell,
@@ -41,40 +41,6 @@ pub trait FetchLinkMetadata {
     type Body: Stream<Item = bytes::Bytes>;
 
     async fn fetch(&self, link: &Link) -> eyre::Result<Option<(Self::Headers, Self::Body)>>;
-}
-
-async fn insert_link<Store>(
-    mut link: Link,
-    store: &Store,
-    link_source: &LinkSource<'_>,
-) -> eyre::Result<bool>
-where
-    Store: FetchLinkMetadata + ReadLinkInformation + WriteLinkInformation + Send + Sync,
-{
-    if let Some(known_link) = store.get(link.url.as_str()).await? {
-        link.read_at = known_link.read_at.or(link_source.created);
-        link.found_at = known_link.found_at.or(link_source.created);
-        link.from_filename = known_link
-            .from_filename
-            .or_else(|| link_source.filename_string());
-
-        store.update(&link).await
-    } else {
-        link.found_at = link_source.created;
-        link.from_filename = link_source.filename_string();
-
-        if link.notes.is_some() {
-            link.read_at = link_source.created;
-        }
-
-        if let Some((headers, body)) = store.fetch(&link).await? {
-            if let Ok(headers) = headers.try_into() {
-                eprintln!("{} => {:?}", link.url, headers);
-            }
-        }
-
-        store.create(&link).await
-    }
 }
 
 async fn enrich_link<Store>(
@@ -170,17 +136,18 @@ where
 
     let links = links
         .into_values()
-        .map(|link| enrich_link(link, store, &link_source));
+        .map(|link| enrich_link(link, store, &link_source))
+        .map(|fut| {
+            fut.and_then(|(link, should_update)| async move {
+                if should_update {
+                    store.update(&link).await
+                } else {
+                    store.create(&link).await
+                }
+            })
+        });
 
-    for result in join_all(links).await {
-        let Ok((link, should_update)) = result else { continue };
-
-        if should_update {
-            store.update(&link).await?;
-        } else {
-            store.create(&link).await?;
-        }
-    }
+    join_all(links).await;
 
     Ok(())
 }
