@@ -1,21 +1,27 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
+use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use comrak::{
     self,
     arena_tree::Node,
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::{future::join_all, Stream, TryFutureExt};
+use futures::{future::join_all, pin_mut, Stream, StreamExt, TryFutureExt};
+use html5ever::driver::{self, ParseOpts};
 use reqwest::header::HeaderMap;
+use scraper::{Html, Selector};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     pin::Pin,
+    str::from_utf8,
 };
+use tendril::TendrilSink;
 
 mod domain;
+// mod html;
 mod stores;
 
 pub use crate::domain::*;
@@ -67,9 +73,177 @@ where
         }
 
         if let Some((headers, body)) = store.fetch(&link).await? {
-            if let Ok(headers) = headers.try_into() {
-                eprintln!("{} => {:?}", link.url, headers);
+            let mut pubdate: Option<(usize, DateTime<Utc>)> = None;
+            let mut title: Option<(usize, String)> = None;
+            let mut image: Option<(usize, String)> = None;
+
+            let mut update_pubdate = |weight, pd: &str| {
+                let Ok(pd) = NaiveDate::parse_from_str(pd, "%Y-%m-%d") else { return };
+                let Some(pd) = pd.and_hms_milli_opt(0, 0, 0, 0) else { return };
+                let Some(pd) = Local.from_local_datetime(&pd).latest() else { return };
+                let pd = DateTime::<Utc>::from(pd);
+
+                if let Some((current, _)) = pubdate {
+                    if current < weight {
+                        pubdate.replace((weight, pd));
+                    }
+                } else {
+                    pubdate.replace((weight, pd));
+                }
+            };
+
+            let mut update_image = |weight, candidate: &str| {
+                if let Some((current, _)) = image {
+                    if current < weight {
+                        image.replace((weight, candidate.to_string()));
+                    }
+                } else {
+                    image.replace((weight, candidate.to_string()));
+                }
+            };
+
+            let mut update_title = |weight, candidate: &str| {
+                if let Some((current, _)) = title {
+                    if current < weight {
+                        title.replace((weight, candidate.to_string()));
+                    }
+                } else {
+                    title.replace((weight, candidate.to_string()));
+                }
+            };
+
+            'html: {
+                let Ok(headers) = headers.try_into() else { break 'html };
+                let Some(content_type) = headers.get("Content-Type") else { break 'html };
+                let Ok(
+                    "text/html" |
+                    "text/html;charset=utf-8" |
+                    "text/html;charset=UTF-8" |
+                    "text/html; charset=utf-8" |
+                    "text/html; charset=UTF-8"
+                ) = content_type.to_str() else { break 'html };
+
+                pin_mut!(body);
+                let selector = Selector::parse(
+                    r#"
+                        head title,head meta,time
+                    "#,
+                )
+                .expect("selector failed to parse");
+                let mut parser = driver::parse_document(Html::new_document(), ParseOpts::default());
+
+                while let Some(chunk) = body.next().await {
+                    let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
+                    parser.process(chunk.into());
+                }
+
+                let doc = parser.finish();
+
+                for element in doc.select(&selector) {
+                    let ev = element.value();
+                    match ev.name() {
+                        "title" => {
+                            let text: String = element.text().collect();
+                            update_title(2, text.as_str());
+                        }
+
+                        "time" => {
+                            let text: String = element.text().collect();
+                            if let Some(datetime) = element.value().attr("datetime") {
+                                update_pubdate(2, datetime);
+                            }
+                        }
+
+                        "meta" => {
+                            let mut name = None;
+                            let mut content = None;
+                            let mut attrs = ev.attrs();
+                            while let Some((attrname, attrvalue)) = attrs.next() {
+                                match attrname {
+                                    "name" => name.replace(attrvalue),
+                                    "content" => content.replace(attrvalue),
+                                    _ => continue,
+                                };
+
+                                match (name, content) {
+                                    (None, _) => continue,
+
+                                    (Some("title"), Some(title)) => {
+                                        update_title(5, title);
+                                    }
+
+                                    (Some("og:title"), Some(title)) => {
+                                        update_title(4, title);
+                                    }
+
+                                    (Some("twitter:title"), Some(title)) => {
+                                        update_title(3, title);
+                                    }
+
+                                    (Some("twitter:text:title"), Some(title)) => {
+                                        update_title(0, title);
+                                    }
+
+                                    (Some("og:image:url"), Some(image)) => {
+                                        update_image(5, image);
+                                    }
+
+                                    (Some("og:image"), Some(image)) => {
+                                        update_image(5, image);
+                                    }
+
+                                    (Some("twitter:image:src"), Some(image)) => {
+                                        update_image(4, image);
+                                    }
+
+                                    (Some("twitter:image"), Some(image)) => {
+                                        update_image(4, image);
+                                    }
+
+                                    (Some("date.created"), Some(pubdate)) => {
+                                        update_pubdate(5, pubdate);
+                                    }
+
+                                    (Some("date"), Some(pubdate)) => {
+                                        update_pubdate(4, pubdate);
+                                    }
+
+                                    (Some("article:published_time"), Some(pubdate)) => {
+                                        update_pubdate(3, pubdate);
+                                    }
+
+                                    (Some("DC.Date"), Some(pubdate)) => {
+                                        update_pubdate(0, pubdate);
+                                    }
+
+                                    (Some(_), _) => break,
+                                }
+
+                                break;
+                            }
+                        }
+
+                        _ => {
+                            let mut collected = 0;
+                            let text: String = element
+                                .text()
+                                .take_while(|x| {
+                                    collected += x.len();
+                                    collected < 512
+                                })
+                                .collect();
+
+                            if let Some(idx) = text.find("ublished") {
+                                // eprintln!("div.<published> = {}", &text[idx..].trim());
+                            }
+                        }
+                    }
+                }
             }
+
+            link.title = link.title.or(title.map(|(_, xs)| xs));
+            link.published_at = link.published_at.or(pubdate.map(|(_, xs)| xs));
+            link.image = link.image.or(image.map(|(_, xs)| xs));
         }
         false
     };
@@ -257,9 +431,15 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
             continue
         };
 
+        let title = title.trim();
+
         return Ok(Link {
             url: url.to_string(),
-            title: title.to_string(),
+            title: if title.is_empty() {
+                None
+            } else {
+                Some(title.to_string())
+            },
             ..Default::default()
         });
     }
@@ -284,13 +464,13 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
                 let title = if title.is_empty() {
                     // this handles the case where SOME reckless person wrote their
                     // links like "https://url.great (but hey here is the title lol sorry)"
-                    text[indent..].trim()[url.len()..].to_string()
+                    text[indent..].trim()[url.len()..].trim().to_string()
                 } else {
-                    title.to_string()
+                    title.trim().to_string()
                 };
 
                 return Ok(Link {
-                    title,
+                    title: if title.is_empty() { None } else { Some(title) },
                     url: url.replace('\\', ""),
                     ..Default::default()
                 });

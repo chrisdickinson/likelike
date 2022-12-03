@@ -340,7 +340,8 @@ impl ReadLinkInformation for SqliteStore {
                 found_at,
                 read_at,
                 published_at,
-                from_filename
+                from_filename,
+                image
             FROM "links" WHERE "url" = ?"#,
             link
         )
@@ -371,6 +372,7 @@ impl ReadLinkInformation for SqliteStore {
             read_at,
             published_at,
             from_filename: value.from_filename,
+            image: value.image,
         }))
     }
 
@@ -389,7 +391,8 @@ impl ReadLinkInformation for SqliteStore {
                     found_at,
                     read_at,
                     published_at,
-                    from_filename
+                    from_filename,
+                    image
                 FROM "links"
                 "#,
             )
@@ -424,6 +427,7 @@ impl ReadLinkInformation for SqliteStore {
                     read_at,
                     published_at,
                     from_filename: value.from_filename,
+                    image: value.image
                 }
             }
         };

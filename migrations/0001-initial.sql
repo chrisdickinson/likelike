@@ -7,12 +7,13 @@ create table if not exists "friends" (
 create table if not exists "links" (
   id integer primary key asc autoincrement,
   url text not null unique on conflict rollback,
-  title text not null,
+  title text default(null),
   tags text not null default(''),
   via text default(null),
   notes text default(null),
   found_at int default(null),
   read_at int default(null),
   published_at integer default(null),
-  from_filename text default(null)
+  from_filename text default(null),
+  image text default(null)
 ) strict;

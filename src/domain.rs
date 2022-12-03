@@ -67,7 +67,7 @@ impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
 #[derive(Default, Clone, Debug)]
 pub struct Link {
     pub(crate) url: String,
-    pub(crate) title: String,
+    pub(crate) title: Option<String>,
     pub(crate) via: Option<Via>,
     pub(crate) tags: HashSet<String>,
     pub(crate) notes: Option<String>,
@@ -75,12 +75,13 @@ pub struct Link {
     pub(crate) read_at: Option<DateTime<Utc>>,
     pub(crate) published_at: Option<DateTime<Utc>>,
     pub(crate) from_filename: Option<String>,
+    pub(crate) image: Option<String>,
 }
 
 impl Link {
     pub fn new<T: AsRef<str>, S: AsRef<str>>(url: T, title: S) -> Self {
         Self {
-            title: title.as_ref().to_string(),
+            title: Some(title.as_ref().to_string()),
             url: url.as_ref().to_string(),
             ..Default::default()
         }
@@ -114,7 +115,7 @@ impl Link {
         self.url.as_ref()
     }
 
-    pub fn title(&self) -> &str {
+    pub fn title(&self) -> Option<&String> {
         self.title.as_ref()
     }
 
@@ -144,6 +145,14 @@ impl Link {
 
     pub fn from_filename(&self) -> Option<&String> {
         self.from_filename.as_ref()
+    }
+
+    pub fn image(&self) -> Option<&String> {
+        self.image.as_ref()
+    }
+
+    pub fn image_mut(&mut self) -> &mut Option<String> {
+        &mut self.image
     }
 }
 

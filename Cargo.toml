@@ -11,12 +11,15 @@ chrono = "0.4.23"
 comrak = "0.15.0"
 eyre = "0.6.8"
 futures = "0.3.25"
+html5ever = "0.26.0"
 include_dir = "0.7.3"
 pin-project = "1.0.12"
 reqwest = { version = "0.11.13", features = ["deflate", "gzip", "brotli", "stream"] }
+scraper = "0.13.0"
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = "1.0.87"
 sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
+tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
 
 [workspace]
