@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 use tokio::fs::read_to_string;
 
 use clap::Parser;
@@ -7,7 +7,8 @@ use likelike::{
     process_input, DummyWrap, HttpClientWrap, LinkSource, ReadLinkInformation, SqliteStore,
 };
 
-/// Simple program to greet a person
+/// Process markdown-formatted linkdump files and store them in a sqlite database. The database
+/// defaults to in-memory.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -31,7 +32,7 @@ async fn main() -> eyre::Result<()> {
         println!(
             "{:18?} {:64} {}",
             next.from_filename(),
-            next.title(),
+            next.title().unwrap_or("idk"),
             next.url()
         );
     }

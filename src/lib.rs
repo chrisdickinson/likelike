@@ -157,8 +157,7 @@ where
                         "meta" => {
                             let mut name = None;
                             let mut content = None;
-                            let mut attrs = ev.attrs();
-                            while let Some((attrname, attrvalue)) = attrs.next() {
+                            for (attrname, attrvalue) in ev.attrs() {
                                 match attrname {
                                     "name" => name.replace(attrvalue),
                                     "content" => content.replace(attrvalue),
@@ -241,9 +240,9 @@ where
                 }
             }
 
-            link.title = link.title.or(title.map(|(_, xs)| xs));
-            link.published_at = link.published_at.or(pubdate.map(|(_, xs)| xs));
-            link.image = link.image.or(image.map(|(_, xs)| xs));
+            link.title = link.title.or_else(|| title.map(|(_, xs)| xs));
+            link.published_at = link.published_at.or_else(|| pubdate.map(|(_, xs)| xs));
+            link.image = link.image.or_else(|| image.map(|(_, xs)| xs));
         }
         false
     };
@@ -464,14 +463,23 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
                 let title = if title.is_empty() {
                     // this handles the case where SOME reckless person wrote their
                     // links like "https://url.great (but hey here is the title lol sorry)"
-                    text[indent..].trim()[url.len()..].trim().to_string()
+                    text[indent..].trim()[url.len()..].to_string()
                 } else {
                     title.trim().to_string()
                 };
 
+                let title = if title.is_empty() { None } else { Some(title) };
+
+                let Ok(mut url) = url.replace('\\', "").parse::<url::Url>() else {
+                    return Err(eyre::eyre!("empty paragraph, no link"))
+                };
+
+                url.set_fragment(None);
+                let url = url.to_string();
+
                 return Ok(Link {
-                    title: if title.is_empty() { None } else { Some(title) },
-                    url: url.replace('\\', ""),
+                    title,
+                    url,
                     ..Default::default()
                 });
             }
@@ -510,6 +518,7 @@ mod tests {
 - [single url](https://google.com/)
 - [single url with title](https://apple.com/ "title")
 - some *markdown*: https://foo.baz
+- no anchors: https://grump.bump/fromp#bomp
 
 # read links
 

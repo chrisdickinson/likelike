@@ -21,6 +21,7 @@ serde_json = "1.0.87"
 sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
 tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
+url = "2.3.1"
 
 [workspace]
 members = ["bins/*"]
