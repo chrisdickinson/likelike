@@ -8,6 +8,7 @@ async-stream = "0.3.3"
 async-trait = "0.1.58"
 bytes = "1.3.0"
 chrono = "0.4.23"
+clap = "4.0.29"
 comrak = "0.15.0"
 eyre = "0.6.8"
 futures = "0.3.25"
@@ -22,6 +23,3 @@ sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "ch
 tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
 url = "2.3.1"
-
-[workspace]
-members = ["bins/*"]

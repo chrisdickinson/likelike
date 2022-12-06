@@ -116,7 +116,7 @@ impl Link {
     }
 
     pub fn title(&self) -> Option<&str> {
-        self.title.as_ref().map(|xs| &**xs)
+        self.title.as_deref()
     }
 
     pub fn via(&self) -> Option<&Via> {
@@ -128,7 +128,7 @@ impl Link {
     }
 
     pub fn notes(&self) -> Option<&str> {
-        self.notes.as_ref().map(|xs| &**xs)
+        self.notes.as_deref()
     }
 
     pub fn found_at(&self) -> Option<DateTime<Utc>> {
@@ -144,11 +144,11 @@ impl Link {
     }
 
     pub fn from_filename(&self) -> Option<&str> {
-        self.from_filename.as_ref().map(|xs| &**xs)
+        self.from_filename.as_deref()
     }
 
     pub fn image(&self) -> Option<&str> {
-        self.image.as_ref().map(|xs| &**xs)
+        self.image.as_deref()
     }
 
     pub fn image_mut(&mut self) -> &mut Option<String> {

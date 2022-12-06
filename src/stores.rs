@@ -204,7 +204,6 @@ static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 #[derive(Debug)]
 pub struct SqliteStore {
-    connection_string: String,
     sqlite: Mutex<SqliteConnection>,
 }
 
@@ -235,7 +234,6 @@ impl SqliteStore {
         }
 
         Ok(Self {
-            connection_string: s.to_string(),
             sqlite: Mutex::new(sqlite),
         })
     }
