@@ -393,7 +393,9 @@ fn extract_metadata_from_child_list<'a>(
                         notes = prior_notes.to_string() + &notes;
                     }
 
-                    link.notes = Some(notes);
+                    let notes = notes.trim().to_string();
+
+                    link.notes = if notes.is_empty() { None } else { Some(notes) };
                 }
             }
             _ => {}

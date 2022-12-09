@@ -6,8 +6,8 @@ use chrono::{TimeZone, Utc};
 use futures::{stream, Stream};
 use include_dir::{include_dir, Dir};
 use reqwest::{header::HeaderMap, redirect::Policy, Client, ClientBuilder};
-use sqlx::{Connection, SqliteConnection};
-use std::{collections::HashMap, env, fmt::Debug, pin::Pin, time::Duration};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, SqliteConnection};
+use std::{collections::HashMap, env, fmt::Debug, pin::Pin, str::FromStr, time::Duration};
 use tokio::sync::Mutex;
 
 use crate::{FetchLinkMetadata, Link, ReadLinkInformation, WriteLinkInformation};
@@ -222,8 +222,10 @@ impl SqliteStore {
     }
 
     pub async fn with_connection_string(s: impl AsRef<str>) -> eyre::Result<Self> {
-        let s = s.as_ref();
-        let mut sqlite = SqliteConnection::connect(s).await?;
+        let mut sqlite = SqliteConnectOptions::from_str(s.as_ref())?
+            .create_if_missing(true)
+            .connect()
+            .await?;
 
         let mut files: Vec<_> = MIGRATIONS_DIR.files().collect();
         files.sort_by(|lhs, rhs| lhs.path().cmp(rhs.path()));
