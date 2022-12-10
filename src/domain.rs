@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 use std::fs::read_to_string;
 use std::{borrow::Cow, collections::HashSet, fmt::Debug, path::Path};
 
@@ -57,6 +58,8 @@ impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
     }
 }
 
+use chrono::serde::ts_seconds_option;
+
 /// A structure representing metadata about a link from a link dump file.
 ///
 /// Links are uniquely identified by their URL.
@@ -64,16 +67,23 @@ impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
 /// This structure supports tagging, annotating notes on a link, marking "found at",
 /// "reaad at", and "published at" data, and surfacing provenance.
 #[allow(dead_code)]
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Link {
     pub(crate) url: String,
     pub(crate) title: Option<String>,
     pub(crate) via: Option<Via>,
     pub(crate) tags: HashSet<String>,
     pub(crate) notes: Option<String>,
+
+    #[serde(with = "ts_seconds_option")]
     pub(crate) found_at: Option<DateTime<Utc>>,
+
+    #[serde(with = "ts_seconds_option")]
     pub(crate) read_at: Option<DateTime<Utc>>,
+
+    #[serde(with = "ts_seconds_option")]
     pub(crate) published_at: Option<DateTime<Utc>>,
+
     pub(crate) from_filename: Option<String>,
     pub(crate) image: Option<String>,
 }

@@ -123,7 +123,6 @@ where
                     "text/html; charset=UTF-8"
                 ) = content_type.to_str() else { break 'html };
 
-                pin_mut!(body);
                 let selector = Selector::parse(
                     r#"
                         head title,head meta,time
@@ -132,6 +131,7 @@ where
                 .expect("selector failed to parse");
                 let mut parser = driver::parse_document(Html::new_document(), ParseOpts::default());
 
+                pin_mut!(body);
                 while let Some(chunk) = body.next().await {
                     let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
                     parser.process(chunk.into());
