@@ -6,7 +6,7 @@ use chrono::{TimeZone, Utc};
 use futures::{stream, Stream};
 use include_dir::{include_dir, Dir};
 use reqwest::{header::HeaderMap, redirect::Policy, Client, ClientBuilder};
-use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, SqliteConnection};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqliteConnection};
 use std::{collections::HashMap, env, fmt::Debug, pin::Pin, str::FromStr, time::Duration};
 use tokio::sync::Mutex;
 
@@ -211,12 +211,19 @@ impl SqliteStore {
     pub async fn new() -> Self {
         let env_var = env::var("LIKELIKE_DB");
 
-        Self::with_connection_string(
-            env_var
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("sqlite::memory:"),
-        )
+        Self::with_connection_string(if let Ok(db_url) = env_var {
+            db_url
+        } else {
+            let location = dirs::data_local_dir()
+                .map(|mut xs| {
+                    std::fs::create_dir_all(&xs).expect("Must be able to create XDG_SHARE_HOME");
+                    xs.push("likelike.sqlite3");
+                    xs.to_string_lossy().to_string()
+                })
+                .unwrap_or_else(|| ":memory:".to_string());
+
+            format!("sqlite://{}", location)
+        })
         .await
         .unwrap()
     }

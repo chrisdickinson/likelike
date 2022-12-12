@@ -1,5 +1,5 @@
 use chrono::Utc;
-use futures::{future::join_all, pin_mut, Stream, StreamExt};
+use futures::{future::join_all, StreamExt};
 use serde::Serialize;
 use slugify::slugify;
 use std::{collections::HashMap, path::PathBuf};
@@ -7,21 +7,42 @@ use std::{collections::HashMap, path::PathBuf};
 use clap::Parser;
 use likelike::{process_input, HttpClientWrap, Link, LinkSource, ReadLinkInformation, SqliteStore};
 
-/// Process markdown-formatted linkdump files and store them in a sqlite database. The database
-/// defaults to in-memory.
+/// Process markdown-formatted linkdump files and store them in a sqlite database.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
 
+    /// If not given, defaults to the local data dir per the "dirs" crate. E.g., on macOS, this
+    /// will be "sqlite:///Users/foo/Library/Application Support/likelike.sqlite3".
     #[arg(short, long)]
     database_url: Option<String>,
 }
 
 #[derive(Parser, Debug)]
 enum Commands {
+    /// Import links from a set of files. Files are parsed for nested markdown lists containing
+    /// links in markdown-anchor or "text: url" format.
+    ///
+    /// Sublists are used to add metadata.
+    ///
+    /// E.g.:
+    ///
+    /// ```
+    /// - some link: https://foo.bar/baz
+    ///   - notes:
+    ///     - # heading
+    ///     - some more text
+    ///   - tags:
+    ///     - a
+    ///     - b
+    /// ```
+    ///
     Import { files: Vec<PathBuf> },
+
+    /// Export links from the database as zola markdown documents with Link metadata included in
+    /// frontmatter.
     Export { output: PathBuf },
 }
 
@@ -40,16 +61,13 @@ impl From<Link> for Frontmatter {
         let slug = slugify!(link.title().unwrap_or_else(|| link.url()));
         let date = link
             .published_at()
-            .or(link.found_at())
-            .unwrap_or_else(|| Utc::now());
+            .or_else(|| link.found_at())
+            .unwrap_or_else(Utc::now);
 
         let date = date.format("%Y-%m-%d").to_string();
         let mut taxonomies = HashMap::new();
 
-        taxonomies.insert(
-            "tags".to_string(),
-            link.tags().into_iter().cloned().collect(),
-        );
+        taxonomies.insert("tags".to_string(), link.tags().iter().cloned().collect());
 
         Self {
             title,
