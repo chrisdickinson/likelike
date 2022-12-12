@@ -63,7 +63,7 @@ jobs:
         run: tar cfz likelike_x64_${{ env.RUNNER_OS }}.tar.gz -C target/release likelike
         shell: bash
 
-      - name: upload x64 linux release
+      - name: upload x64 ${{ env.RUNNER_OS }} release
         id: release
         uses: actions/upload-release-asset@v1
         env:
