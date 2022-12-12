@@ -121,8 +121,12 @@ async fn main() -> eyre::Result<()> {
         Commands::Import { files } => {
             let store = HttpClientWrap::wrap(store);
             let store = &store;
-            let mut futs = Vec::with_capacity(files.len());
-            for file in files.into_iter() {
+
+            let mut resolved_files = Vec::new();
+            _find_markdown_files(&mut resolved_files, files, FindMode::Explicit)?;
+
+            let mut futs = Vec::with_capacity(resolved_files.len());
+            for file in resolved_files.into_iter() {
                 futs.push(async move {
                     let link_source = LinkSource::from_path(file.as_path())?;
                     process_input(link_source, store).await?;
@@ -134,6 +138,42 @@ async fn main() -> eyre::Result<()> {
                 let Ok(file) = result else { continue };
                 eprintln!("processed \"{}\"", file.to_string_lossy());
             }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(PartialEq)]
+enum FindMode {
+    Explicit,
+    Implicit,
+}
+
+fn _find_markdown_files(
+    output: &mut Vec<PathBuf>,
+    files: Vec<PathBuf>,
+    mode: FindMode,
+) -> eyre::Result<()> {
+    output.reserve(files.len());
+    for file in files.into_iter() {
+        let Ok(metadata) = std::fs::metadata(file.as_path()) else { continue };
+        if metadata.is_dir() {
+            let entries: Vec<_> = std::fs::read_dir(file.as_path())?
+                .into_iter()
+                .filter_map(|file| Some(file.ok()?.path()))
+                .collect();
+
+            _find_markdown_files(output, entries, FindMode::Implicit)?;
+        } else if mode == FindMode::Implicit {
+            // filter "implicit" files by extension.
+            let Some(ext) = file.extension() else { continue };
+
+            if "md" == ext {
+                output.push(file);
+            }
+        } else {
+            output.push(file);
         }
     }
 

@@ -68,8 +68,10 @@ where
         link.found_at = link_source.created;
         link.from_filename = link_source.filename_string();
 
-        if link.notes.is_some() {
-            link.read_at = link_source.created;
+        if let Some(notes) = link.notes() {
+            if !notes.trim().is_empty() {
+                link.read_at = link_source.created;
+            }
         }
 
         if let Some((headers, body)) = store.fetch(&link).await? {
