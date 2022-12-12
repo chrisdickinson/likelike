@@ -1,0 +1,75 @@
+name: Build Likelike
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: create a github release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Likelike ${{ github.ref }}
+          draft: true
+          prerelease: false
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+  build:
+    needs: [release]
+    name: ${{ matrix.os }} build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: lowercase the runner OS name
+        run: |
+          runner_os=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          echo "RUNNER_OS=$runner_os" >> $GITHUB_ENV
+        shell: bash
+
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ env.RUNNER_OS }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ env.RUNNER_OS }}-cargo-
+
+      - name: run build
+        run: |
+          cargo build --release
+        shell: bash
+
+      - name: create tarball
+        run: tar cfz likelike_x64_${{ env.RUNNER_OS }}.tar.gz -C target/release likelike
+        shell: bash
+
+      - name: upload x64 linux release
+        id: release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{needs.release.outputs.upload_url}}
+          asset_path: ./likelike_x64_${{ env.RUNNER_OS }}.tar.gz
+          asset_name: likelike_x64_${{ env.RUNNER_OS }}.tar.gz
+          asset_content_type: application/gzip
