@@ -1,5 +1,8 @@
+use chrono::serde::ts_seconds_option;
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use slugify::slugify;
+use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::{borrow::Cow, collections::HashSet, fmt::Debug, path::Path};
 
@@ -58,15 +61,12 @@ impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
     }
 }
 
-use chrono::serde::ts_seconds_option;
-
 /// A structure representing metadata about a link from a link dump file.
 ///
 /// Links are uniquely identified by their URL.
 ///
 /// This structure supports tagging, annotating notes on a link, marking "found at",
 /// "reaad at", and "published at" data, and surfacing provenance.
-#[allow(dead_code)]
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Link {
     pub(crate) url: String,
@@ -166,11 +166,101 @@ impl Link {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum Via {
     Friend(String),
     Link(String),
     Freeform(String),
-    #[default]
-    Unknown,
+}
+
+#[derive(Serialize)]
+pub struct Frontmatter {
+    title: String,
+    slug: String,
+    date: String,
+    taxonomies: HashMap<String, Vec<String>>,
+    extra: FrontmatterExtra,
+
+    #[serde(skip_serializing)]
+    notes: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(tag = "type", content = "content")]
+pub enum FrontmatterVia {
+    Friend(String),
+    Link(String),
+    Freeform(String),
+}
+
+impl From<Via> for FrontmatterVia {
+    fn from(v: Via) -> Self {
+        match v {
+            Via::Friend(xs) => FrontmatterVia::Friend(xs),
+            Via::Link(xs) => FrontmatterVia::Link(xs),
+            Via::Freeform(xs) => FrontmatterVia::Freeform(xs),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct FrontmatterExtra {
+    url: url::Url,
+    title: Option<String>,
+
+    found_at: Option<String>,
+    read_at: Option<String>,
+    published_at: Option<String>,
+    from_filename: Option<String>,
+    image: Option<String>,
+    via: Option<FrontmatterVia>,
+}
+
+impl Frontmatter {
+    pub fn filename(&self) -> String {
+        format!("{}.md", slugify!(self.extra.url.as_str()))
+    }
+
+    pub fn notes(&self) -> &str {
+        self.notes.as_str()
+    }
+}
+
+impl TryFrom<Link> for Frontmatter {
+    type Error = eyre::ErrReport;
+
+    fn try_from(link: Link) -> eyre::Result<Self> {
+        let title = format!("Reading: {}", link.title().unwrap_or_else(|| link.url()));
+        let slug = slugify!(link.title().unwrap_or_else(|| link.url()));
+        let date = link
+            .published_at()
+            .or_else(|| link.found_at())
+            .unwrap_or_else(Utc::now);
+
+        let date = date.format("%Y-%m-%d").to_string();
+        let mut taxonomies = HashMap::new();
+
+        taxonomies.insert("tags".to_string(), link.tags().iter().cloned().collect());
+
+        Ok(Self {
+            title,
+            slug,
+            date,
+            taxonomies,
+            notes: link.notes.unwrap_or_default(),
+            extra: FrontmatterExtra {
+                url: link.url.parse()?,
+                title: link.title,
+                via: link.via.map(|xs| xs.into()),
+                found_at: link.found_at.map(|xs| xs.format("%Y-%m-%d").to_string()),
+                read_at: link.read_at.map(|xs| xs.format("%Y-%m-%d").to_string()),
+                published_at: link
+                    .published_at
+                    .map(|xs| xs.format("%Y-%m-%d").to_string()),
+
+                from_filename: link.from_filename,
+                image: link.image,
+            },
+        })
+    }
 }

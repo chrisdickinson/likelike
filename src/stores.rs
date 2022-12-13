@@ -253,7 +253,12 @@ impl WriteLinkInformation for SqliteStore {
     async fn update(&self, link: &Link) -> eyre::Result<bool> {
         let mut sqlite = self.sqlite.lock().await;
         let tags = serde_json::to_string(&link.tags)?;
-        let via = serde_json::to_string(&link.via)?;
+
+        let via = link
+            .via
+            .as_ref()
+            .map(|via| serde_json::to_string(via).expect("failed to serialize Via column"));
+
         let found_at = link.found_at.map(|xs| xs.timestamp_millis());
         let read_at = link.read_at.map(|xs| xs.timestamp_millis());
 

@@ -25,4 +25,4 @@ sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "ch
 tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
 toml = "0.5.9"
-url = "2.3.1"
+url = { version = "2.3.1", features = ["serde"] }

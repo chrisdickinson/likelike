@@ -58,7 +58,16 @@ where
     Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
 {
     let update = if let Some(known_link) = store.get(link.url.as_str()).await? {
-        link.read_at = known_link.read_at.or(link_source.created);
+        link.read_at = known_link.read_at.or_else(|| {
+            if let Some(notes) = link.notes() {
+                if !notes.trim().is_empty() {
+                    return Some(Utc::now());
+                }
+            }
+
+            None
+        });
+
         link.found_at = known_link.found_at.or(link_source.created);
         link.from_filename = known_link
             .from_filename
@@ -408,7 +417,7 @@ fn extract_metadata_from_child_list<'a>(
 }
 
 fn parse_via(text: &str) -> Via {
-    if &text[..1] == "@" {
+    if text.starts_with('@') {
         return Via::Friend(text.trim().to_string());
     }
 

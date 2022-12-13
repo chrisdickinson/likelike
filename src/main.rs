@@ -1,11 +1,11 @@
-use chrono::Utc;
 use futures::{future::join_all, StreamExt};
-use serde::Serialize;
-use slugify::slugify;
-use std::{collections::HashMap, path::PathBuf};
+
+use std::path::PathBuf;
 
 use clap::Parser;
-use likelike::{process_input, HttpClientWrap, Link, LinkSource, ReadLinkInformation, SqliteStore};
+use likelike::{
+    process_input, Frontmatter, HttpClientWrap, LinkSource, ReadLinkInformation, SqliteStore,
+};
 
 /// Process markdown-formatted linkdump files and store them in a sqlite database.
 #[derive(Parser, Debug)]
@@ -46,45 +46,6 @@ enum Commands {
     Export { output: PathBuf },
 }
 
-#[derive(Serialize)]
-struct Frontmatter {
-    title: String,
-    slug: String,
-    date: String,
-    taxonomies: HashMap<String, Vec<String>>,
-    extra: Link,
-}
-
-impl From<Link> for Frontmatter {
-    fn from(link: Link) -> Self {
-        let title = format!("Reading: {}", link.title().unwrap_or_else(|| link.url()));
-        let slug = slugify!(link.title().unwrap_or_else(|| link.url()));
-        let date = link
-            .published_at()
-            .or_else(|| link.found_at())
-            .unwrap_or_else(Utc::now);
-
-        let date = date.format("%Y-%m-%d").to_string();
-        let mut taxonomies = HashMap::new();
-
-        taxonomies.insert("tags".to_string(), link.tags().iter().cloned().collect());
-
-        Self {
-            title,
-            slug,
-            date,
-            taxonomies,
-            extra: link,
-        }
-    }
-}
-
-impl Frontmatter {
-    fn filename(&self) -> String {
-        format!("{}.md", slugify!(self.extra.url()))
-    }
-}
-
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let cli = Args::parse();
@@ -104,7 +65,7 @@ async fn main() -> eyre::Result<()> {
                     continue;
                 }
 
-                let frontmatter: Frontmatter = link.into();
+                let Ok(frontmatter): Result<Frontmatter, _> = link.try_into() else { continue };
                 let mut path = output.clone();
                 path.push(frontmatter.filename());
                 std::fs::write(
@@ -112,7 +73,7 @@ async fn main() -> eyre::Result<()> {
                     format!(
                         "+++\n{}\n+++\n{}",
                         toml::to_string_pretty(&frontmatter)?,
-                        frontmatter.extra.notes().unwrap_or("")
+                        frontmatter.notes()
                     ),
                 )?;
             }
