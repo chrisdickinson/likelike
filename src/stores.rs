@@ -309,8 +309,10 @@ impl WriteLinkInformation for SqliteStore {
                 found_at,
                 read_at,
                 from_filename,
-                url
+                url,
+                image
             ) VALUES (
+                ?,
                 ?,
                 ?,
                 ?,
@@ -328,7 +330,8 @@ impl WriteLinkInformation for SqliteStore {
             found_at,
             read_at,
             link.from_filename,
-            link.url
+            link.url,
+            link.image
         )
         .execute(&mut *sqlite)
         .await?;

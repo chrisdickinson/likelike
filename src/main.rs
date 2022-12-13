@@ -39,7 +39,13 @@ enum Commands {
     ///     - b
     /// ```
     ///
-    Import { files: Vec<PathBuf> },
+    Import {
+        files: Vec<PathBuf>,
+
+        /// Pass this argument to display imported link data.
+        #[arg(long)]
+        display_links: bool,
+    },
 
     /// Export links from the database as zola markdown documents with Link metadata included in
     /// frontmatter.
@@ -79,7 +85,10 @@ async fn main() -> eyre::Result<()> {
             }
         }
 
-        Commands::Import { files } => {
+        Commands::Import {
+            files,
+            display_links,
+        } => {
             let store = HttpClientWrap::wrap(store);
             let store = &store;
 
@@ -98,6 +107,14 @@ async fn main() -> eyre::Result<()> {
             for result in join_all(futs.into_iter()).await {
                 let Ok(file) = result else { continue };
                 eprintln!("processed \"{}\"", file.to_string_lossy());
+            }
+
+            if display_links {
+                let mut links = store.values().await?;
+
+                while let Some(link) = links.next().await {
+                    eprintln!("{:?}", link);
+                }
             }
         }
     }

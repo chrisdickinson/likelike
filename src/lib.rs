@@ -226,7 +226,7 @@ where
                                         update_pubdate(0, pubdate);
                                     }
 
-                                    (Some(_), _) => break,
+                                    (Some(_), _) => continue,
                                 }
 
                                 break;
@@ -520,7 +520,9 @@ mod tests {
 
     #[tokio::test]
     async fn it_works() -> eyre::Result<()> {
-        let store = super::HttpClientWrap::wrap(SqliteStore::new().await);
+        let store = super::HttpClientWrap::wrap(
+            SqliteStore::with_connection_string("sqlite::memory:").await?,
+        );
 
         process_input(
             r#"

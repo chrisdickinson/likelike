@@ -72,16 +72,6 @@
     },
     "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at,\n                    published_at,\n                    from_filename,\n                    image\n                FROM \"links\"\n                "
   },
-  "3644872883cbb38985c1cbe96c63718fd963e771b755bbc61d1c7fccf4975a5d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 8
-      }
-    },
-    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                from_filename,\n                url\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            )\n            "
-  },
   "7cb6e82eb5ae0a4115bf310355ce04738d67a52b9c505a25733a67f508f9abec": {
     "describe": {
       "columns": [],
@@ -91,6 +81,16 @@
       }
     },
     "query": "\n            UPDATE \"links\" SET\n                title = ?,\n                tags = json(?),\n                via = ?,\n                notes = ?,\n                found_at = ?,\n                read_at = ?,\n                published_at = ?,\n                from_filename = ?\n            WHERE \"url\" = ?\n            "
+  },
+  "d23046d0dbc4cf7c40f982d3a9ff65aa9439b00b7656e3dddb9b7c7f27877e07": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 9
+      }
+    },
+    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                from_filename,\n                url,\n                image\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            )\n            "
   },
   "f3d841dea0632d51125a2a0aa2092593fb157d8dae4d58f6be5ca91bc22b0e18": {
     "describe": {
