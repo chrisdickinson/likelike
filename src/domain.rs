@@ -204,8 +204,37 @@ impl From<Via> for FrontmatterVia {
 }
 
 #[derive(Serialize)]
+pub struct FrontmatterUrl {
+    url: String,
+    host: String,
+    path_segments: Vec<String>,
+    path: String,
+    query: HashMap<String, String>,
+}
+
+impl From<url::Url> for FrontmatterUrl {
+    fn from(u: url::Url) -> Self {
+        FrontmatterUrl {
+            url: u.to_string(),
+            host: u
+                .host_str()
+                .map(|xs| xs.to_string())
+                .unwrap_or_else(Default::default),
+            path: u.path().to_string(),
+            path_segments: u
+                .path_segments()
+                .map(|xs| xs.map(|xs| xs.to_string()).collect())
+                .unwrap_or_else(Default::default),
+            query: u
+                .query_pairs()
+                .map(|(lhs, rhs)| (lhs.to_string(), rhs.to_string()))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct FrontmatterExtra {
-    url: url::Url,
     title: Option<String>,
 
     found_at: Option<String>,
@@ -213,12 +242,13 @@ pub struct FrontmatterExtra {
     published_at: Option<String>,
     from_filename: Option<String>,
     image: Option<String>,
+    url: FrontmatterUrl,
     via: Option<FrontmatterVia>,
 }
 
 impl Frontmatter {
     pub fn filename(&self) -> String {
-        format!("{}.md", slugify!(self.extra.url.as_str()))
+        format!("{}.md", slugify!(self.extra.url.url.as_str()))
     }
 
     pub fn notes(&self) -> &str {
@@ -249,7 +279,7 @@ impl TryFrom<Link> for Frontmatter {
             taxonomies,
             notes: link.notes.unwrap_or_default(),
             extra: FrontmatterExtra {
-                url: link.url.parse()?,
+                url: link.url.parse::<url::Url>()?.into(),
                 title: link.title,
                 via: link.via.map(|xs| xs.into()),
                 found_at: link.found_at.map(|xs| xs.format("%Y-%m-%d").to_string()),
