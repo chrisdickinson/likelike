@@ -57,76 +57,90 @@ async fn enrich_link<Store>(
 where
     Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
 {
-    let update = if let Some(known_link) = store.get(link.url.as_str()).await? {
-        link.read_at = known_link.read_at.or_else(|| {
+    Ok(
+        if let Some(mut known_link) = store.get(link.url.as_str()).await? {
+            known_link.read_at = {
+                if let Some(notes) = link.notes() {
+                    if !notes.trim().is_empty() {
+                        known_link.read_at.or_else(|| Some(Utc::now()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            known_link.found_at = known_link
+                .found_at
+                .or(link.found_at)
+                .or(link_source.created);
+
+            known_link.from_filename = known_link
+                .from_filename
+                .or(link.from_filename)
+                .or_else(|| link_source.filename_string());
+
+            known_link.title = link.title.or(known_link.title);
+            known_link.notes = link.notes;
+            known_link.tags = link.tags;
+            known_link.via = link.via;
+
+            (known_link, true)
+        } else {
+            link.found_at = link_source.created;
+            link.from_filename = link_source.filename_string();
+
             if let Some(notes) = link.notes() {
                 if !notes.trim().is_empty() {
-                    return Some(Utc::now());
+                    link.read_at = link_source.created;
                 }
             }
 
-            None
-        });
+            if let Some((headers, body)) = store.fetch(&link).await? {
+                let mut pubdate: Option<(usize, DateTime<Utc>)> = None;
+                let mut title: Option<(usize, String)> = None;
+                let mut image: Option<(usize, String)> = None;
 
-        link.found_at = known_link.found_at.or(link_source.created);
-        link.from_filename = known_link
-            .from_filename
-            .or_else(|| link_source.filename_string());
-        true
-    } else {
-        link.found_at = link_source.created;
-        link.from_filename = link_source.filename_string();
+                let mut update_pubdate = |weight, pd: &str| {
+                    let Ok(pd) = NaiveDate::parse_from_str(pd, "%Y-%m-%d") else { return };
+                    let Some(pd) = pd.and_hms_milli_opt(0, 0, 0, 0) else { return };
+                    let Some(pd) = Local.from_local_datetime(&pd).latest() else { return };
+                    let pd = DateTime::<Utc>::from(pd);
 
-        if let Some(notes) = link.notes() {
-            if !notes.trim().is_empty() {
-                link.read_at = link_source.created;
-            }
-        }
-
-        if let Some((headers, body)) = store.fetch(&link).await? {
-            let mut pubdate: Option<(usize, DateTime<Utc>)> = None;
-            let mut title: Option<(usize, String)> = None;
-            let mut image: Option<(usize, String)> = None;
-
-            let mut update_pubdate = |weight, pd: &str| {
-                let Ok(pd) = NaiveDate::parse_from_str(pd, "%Y-%m-%d") else { return };
-                let Some(pd) = pd.and_hms_milli_opt(0, 0, 0, 0) else { return };
-                let Some(pd) = Local.from_local_datetime(&pd).latest() else { return };
-                let pd = DateTime::<Utc>::from(pd);
-
-                if let Some((current, _)) = pubdate {
-                    if current < weight {
+                    if let Some((current, _)) = pubdate {
+                        if current < weight {
+                            pubdate.replace((weight, pd));
+                        }
+                    } else {
                         pubdate.replace((weight, pd));
                     }
-                } else {
-                    pubdate.replace((weight, pd));
-                }
-            };
+                };
 
-            let mut update_image = |weight, candidate: &str| {
-                if let Some((current, _)) = image {
-                    if current < weight {
+                let mut update_image = |weight, candidate: &str| {
+                    if let Some((current, _)) = image {
+                        if current < weight {
+                            image.replace((weight, candidate.to_string()));
+                        }
+                    } else {
                         image.replace((weight, candidate.to_string()));
                     }
-                } else {
-                    image.replace((weight, candidate.to_string()));
-                }
-            };
+                };
 
-            let mut update_title = |weight, candidate: &str| {
-                if let Some((current, _)) = title {
-                    if current < weight {
+                let mut update_title = |weight, candidate: &str| {
+                    if let Some((current, _)) = title {
+                        if current < weight {
+                            title.replace((weight, candidate.to_string()));
+                        }
+                    } else {
                         title.replace((weight, candidate.to_string()));
                     }
-                } else {
-                    title.replace((weight, candidate.to_string()));
-                }
-            };
+                };
 
-            'html: {
-                let Ok(headers) = headers.try_into() else { break 'html };
-                let Some(content_type) = headers.get("Content-Type") else { break 'html };
-                let Ok(
+                'html: {
+                    let Ok(headers) = headers.try_into() else { break 'html };
+                    let Some(content_type) = headers.get("Content-Type") else { break 'html };
+                    let Ok(
                     "text/html" |
                     "text/html;charset=utf-8" |
                     "text/html;charset=UTF-8" |
@@ -134,131 +148,131 @@ where
                     "text/html; charset=UTF-8"
                 ) = content_type.to_str() else { break 'html };
 
-                let selector = Selector::parse(
-                    r#"
+                    let selector = Selector::parse(
+                        r#"
                         head title,head meta,time
                     "#,
-                )
-                .expect("selector failed to parse");
-                let mut parser = driver::parse_document(Html::new_document(), ParseOpts::default());
+                    )
+                    .expect("selector failed to parse");
+                    let mut parser =
+                        driver::parse_document(Html::new_document(), ParseOpts::default());
 
-                pin_mut!(body);
-                while let Some(chunk) = body.next().await {
-                    let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
-                    parser.process(chunk.into());
-                }
+                    pin_mut!(body);
+                    while let Some(chunk) = body.next().await {
+                        let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
+                        parser.process(chunk.into());
+                    }
 
-                let doc = parser.finish();
+                    let doc = parser.finish();
 
-                for element in doc.select(&selector) {
-                    let ev = element.value();
-                    match ev.name() {
-                        "title" => {
-                            let text: String = element.text().collect();
-                            update_title(2, text.as_str());
-                        }
-
-                        "time" => {
-                            let text: String = element.text().collect();
-                            if let Some(datetime) = element.value().attr("datetime") {
-                                update_pubdate(2, datetime);
+                    for element in doc.select(&selector) {
+                        let ev = element.value();
+                        match ev.name() {
+                            "title" => {
+                                let text: String = element.text().collect();
+                                update_title(2, text.as_str());
                             }
-                        }
 
-                        "meta" => {
-                            let mut name = None;
-                            let mut content = None;
-                            for (attrname, attrvalue) in ev.attrs() {
-                                match attrname {
-                                    "name" => name.replace(attrvalue),
-                                    "content" => content.replace(attrvalue),
-                                    _ => continue,
-                                };
-
-                                match (name, content) {
-                                    (None, _) => continue,
-
-                                    (Some("title"), Some(title)) => {
-                                        update_title(5, title);
-                                    }
-
-                                    (Some("og:title"), Some(title)) => {
-                                        update_title(4, title);
-                                    }
-
-                                    (Some("twitter:title"), Some(title)) => {
-                                        update_title(3, title);
-                                    }
-
-                                    (Some("twitter:text:title"), Some(title)) => {
-                                        update_title(0, title);
-                                    }
-
-                                    (Some("og:image:url"), Some(image)) => {
-                                        update_image(5, image);
-                                    }
-
-                                    (Some("og:image"), Some(image)) => {
-                                        update_image(5, image);
-                                    }
-
-                                    (Some("twitter:image:src"), Some(image)) => {
-                                        update_image(4, image);
-                                    }
-
-                                    (Some("twitter:image"), Some(image)) => {
-                                        update_image(4, image);
-                                    }
-
-                                    (Some("date.created"), Some(pubdate)) => {
-                                        update_pubdate(5, pubdate);
-                                    }
-
-                                    (Some("date"), Some(pubdate)) => {
-                                        update_pubdate(4, pubdate);
-                                    }
-
-                                    (Some("article:published_time"), Some(pubdate)) => {
-                                        update_pubdate(3, pubdate);
-                                    }
-
-                                    (Some("DC.Date"), Some(pubdate)) => {
-                                        update_pubdate(0, pubdate);
-                                    }
-
-                                    (Some(_), _) => continue,
+                            "time" => {
+                                let text: String = element.text().collect();
+                                if let Some(datetime) = element.value().attr("datetime") {
+                                    update_pubdate(2, datetime);
                                 }
-
-                                break;
                             }
-                        }
 
-                        _ => {
-                            let mut collected = 0;
-                            let text: String = element
-                                .text()
-                                .take_while(|x| {
-                                    collected += x.len();
-                                    collected < 512
-                                })
-                                .collect();
+                            "meta" => {
+                                let mut name = None;
+                                let mut content = None;
+                                for (attrname, attrvalue) in ev.attrs() {
+                                    match attrname {
+                                        "name" => name.replace(attrvalue),
+                                        "content" => content.replace(attrvalue),
+                                        _ => continue,
+                                    };
 
-                            if let Some(idx) = text.find("ublished") {
-                                // eprintln!("div.<published> = {}", &text[idx..].trim());
+                                    match (name, content) {
+                                        (None, _) => continue,
+
+                                        (Some("title"), Some(title)) => {
+                                            update_title(5, title);
+                                        }
+
+                                        (Some("og:title"), Some(title)) => {
+                                            update_title(4, title);
+                                        }
+
+                                        (Some("twitter:title"), Some(title)) => {
+                                            update_title(3, title);
+                                        }
+
+                                        (Some("twitter:text:title"), Some(title)) => {
+                                            update_title(0, title);
+                                        }
+
+                                        (Some("og:image:url"), Some(image)) => {
+                                            update_image(5, image);
+                                        }
+
+                                        (Some("og:image"), Some(image)) => {
+                                            update_image(5, image);
+                                        }
+
+                                        (Some("twitter:image:src"), Some(image)) => {
+                                            update_image(4, image);
+                                        }
+
+                                        (Some("twitter:image"), Some(image)) => {
+                                            update_image(4, image);
+                                        }
+
+                                        (Some("date.created"), Some(pubdate)) => {
+                                            update_pubdate(5, pubdate);
+                                        }
+
+                                        (Some("date"), Some(pubdate)) => {
+                                            update_pubdate(4, pubdate);
+                                        }
+
+                                        (Some("article:published_time"), Some(pubdate)) => {
+                                            update_pubdate(3, pubdate);
+                                        }
+
+                                        (Some("DC.Date"), Some(pubdate)) => {
+                                            update_pubdate(0, pubdate);
+                                        }
+
+                                        (Some(_), _) => continue,
+                                    }
+
+                                    break;
+                                }
+                            }
+
+                            _ => {
+                                let mut collected = 0;
+                                let text: String = element
+                                    .text()
+                                    .take_while(|x| {
+                                        collected += x.len();
+                                        collected < 512
+                                    })
+                                    .collect();
+
+                                if let Some(idx) = text.find("ublished") {
+                                    // eprintln!("div.<published> = {}", &text[idx..].trim());
+                                }
                             }
                         }
                     }
                 }
+
+                link.title = link.title.or_else(|| title.map(|(_, xs)| xs));
+                link.published_at = link.published_at.or_else(|| pubdate.map(|(_, xs)| xs));
+                link.image = link.image.or_else(|| image.map(|(_, xs)| xs));
             }
-
-            link.title = link.title.or_else(|| title.map(|(_, xs)| xs));
-            link.published_at = link.published_at.or_else(|| pubdate.map(|(_, xs)| xs));
-            link.image = link.image.or_else(|| image.map(|(_, xs)| xs));
-        }
-        false
-    };
-
-    Ok((link, update))
+            (link, false)
+        },
+    )
 }
 
 pub async fn process_input<'a, S, Store>(input: S, store: &Store) -> eyre::Result<()>
@@ -448,7 +462,12 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
         return Ok(Link {
             url: url.to_string(),
             title: if title.is_empty() {
-                None
+                let anchor_children: Result<String, _> = child.children().map(fmt_cmark).collect();
+                if let Ok(text) = anchor_children {
+                    Some(text)
+                } else {
+                    None
+                }
             } else {
                 Some(title.to_string())
             },
@@ -509,7 +528,13 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
 fn fmt_cmark<'a>(node: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<String> {
     let mut output = Vec::with_capacity(512);
     comrak::format_commonmark(node, &ComrakOptions::default(), &mut output)?;
-    String::from_utf8(output).map_err(|e| e.into())
+
+    if output.is_empty() {
+        Ok(Default::default())
+    } else {
+        output.pop();
+        String::from_utf8(output).map_err(|e| e.into())
+    }
 }
 
 #[cfg(test)]

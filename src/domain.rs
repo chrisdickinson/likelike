@@ -260,7 +260,7 @@ impl TryFrom<Link> for Frontmatter {
     type Error = eyre::ErrReport;
 
     fn try_from(link: Link) -> eyre::Result<Self> {
-        let title = format!("Reading: {}", link.title().unwrap_or_else(|| link.url()));
+        let title = link.title().unwrap_or_else(|| link.url()).to_string();
         let slug = slugify!(link.title().unwrap_or_else(|| link.url()));
         let date = link
             .published_at()
