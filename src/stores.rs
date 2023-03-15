@@ -229,10 +229,11 @@ impl SqliteStore {
     }
 
     pub async fn with_connection_string(s: impl AsRef<str>) -> eyre::Result<Self> {
-        let mut sqlite = SqliteConnectOptions::from_str(s.as_ref())?
-            .create_if_missing(true)
-            .connect()
-            .await?;
+        Self::with_connection_options(SqliteConnectOptions::from_str(s.as_ref())?).await
+    }
+
+    pub async fn with_connection_options(opts: SqliteConnectOptions) -> eyre::Result<Self> {
+        let mut sqlite = opts.create_if_missing(true).connect().await?;
 
         let mut files: Vec<_> = MIGRATIONS_DIR.files().collect();
         files.sort_by(|lhs, rhs| lhs.path().cmp(rhs.path()));

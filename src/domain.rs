@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 use std::collections::HashMap;
 use std::fs::read_to_string;
-use std::{borrow::Cow, collections::HashSet, fmt::Debug, path::Path};
+use std::{borrow::Cow, fmt::Debug, path::Path};
 
 #[derive(Debug)]
 pub struct LinkSource<'a> {
@@ -72,7 +72,7 @@ pub struct Link {
     pub(crate) url: String,
     pub(crate) title: Option<String>,
     pub(crate) via: Option<Via>,
-    pub(crate) tags: HashSet<String>,
+    pub(crate) tags: Vec<String>,
     pub(crate) notes: Option<String>,
 
     #[serde(with = "ts_seconds_option")]
@@ -101,7 +101,7 @@ impl Link {
         &mut self.via
     }
 
-    pub fn tags_mut(&mut self) -> &mut HashSet<String> {
+    pub fn tags_mut(&mut self) -> &mut Vec<String> {
         &mut self.tags
     }
 
@@ -133,7 +133,7 @@ impl Link {
         self.via.as_ref()
     }
 
-    pub fn tags(&self) -> &HashSet<String> {
+    pub fn tags(&self) -> &Vec<String> {
         &self.tags
     }
 

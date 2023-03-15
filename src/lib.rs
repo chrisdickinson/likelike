@@ -542,6 +542,63 @@ mod tests {
     use super::ReadLinkInformation;
     use super::*;
     use futures::StreamExt;
+    use sqlx::pool::PoolOptions;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::Sqlite;
+
+    #[sqlx::test]
+    async fn test_parse_tags(
+        pool_opts: PoolOptions<Sqlite>,
+        connect_opts: SqliteConnectOptions,
+    ) -> eyre::Result<()> {
+        let store =
+            crate::DummyWrap::new(SqliteStore::with_connection_options(connect_opts).await?);
+
+        process_input(
+            r#"
+- plain text link title: https://a.com/
+    - tags: hello, there, gawrsh, this is great, yep, ok
+- [markdown style](https://b.com/)
+    - tags:
+        - hello
+        - there
+        - gawrsh
+        - this is great
+        - yep, ok
+"#,
+            &store,
+        )
+        .await?;
+
+        let link_a = store.get("https://a.com/").await?;
+
+        dbg!(link_a);
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_note_newlines(
+        pool_opts: PoolOptions<Sqlite>,
+        connect_opts: SqliteConnectOptions,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_create_then_update_leaves_enriched_metadata_in_place(
+        pool_opts: PoolOptions<Sqlite>,
+        connect_opts: SqliteConnectOptions,
+    ) -> eyre::Result<()> {
+        let store =
+            crate::DummyWrap::new(SqliteStore::with_connection_options(connect_opts).await?);
+        // Make sure that:
+        // - title
+        // - image
+        // - TKTK
+        //
+        // are preserved when updating a previously-created link
+        Ok(())
+    }
 
     #[tokio::test]
     async fn it_works() -> eyre::Result<()> {
