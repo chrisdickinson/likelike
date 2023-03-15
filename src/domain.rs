@@ -270,7 +270,16 @@ impl TryFrom<Link> for Frontmatter {
         let date = date.format("%Y-%m-%d").to_string();
         let mut taxonomies = HashMap::new();
 
-        taxonomies.insert("tags".to_string(), link.tags().iter().cloned().collect());
+        // This is a little redundant since we do this on import now, but older link entries might contain
+        // empty strings in their tags.
+        let tags = link
+            .tags()
+            .iter()
+            .filter(|xs| !xs.is_empty())
+            .map(|xs| xs.to_owned())
+            .collect();
+
+        taxonomies.insert("tags".to_string(), tags);
 
         Ok(Self {
             title,

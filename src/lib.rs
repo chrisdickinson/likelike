@@ -376,6 +376,7 @@ fn extract_metadata_from_child_list<'a>(
                 let mut tags: HashSet<_> = first_child_text["tags:".len()..]
                     .trim()
                     .split(',')
+                    .filter(|xs| !xs.is_empty())
                     .map(|xs| xs.trim().to_string())
                     .collect();
 
