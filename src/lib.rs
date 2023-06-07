@@ -21,7 +21,6 @@ use std::{
 use tendril::TendrilSink;
 
 mod domain;
-// mod html;
 mod stores;
 
 pub use crate::domain::*;
@@ -287,7 +286,9 @@ where
 
     let root = parse_document(&arena, link_source.content.as_ref(), &opts);
 
-    let links = root
+    let mut links = HashMap::new();
+
+    let iter_list_items = root
         .children()
         .filter(|c| matches!(c.data.borrow().value, NodeValue::List(_)))
         .flat_map(|c| c.children())
@@ -296,41 +297,35 @@ where
                 c.data.borrow().value,
                 NodeValue::Item(_) | NodeValue::TaskItem(_)
             )
-        })
-        .filter_map(|list_item_node| {
-            let mut children = list_item_node.children();
-
-            if let Some(para) = children.next() {
-                if !matches!(para.data.borrow().value, NodeValue::Paragraph) {
-                    return None;
-                }
-
-                let Ok(mut link) = extract_link_from_paragraph(para) else {
-                    return None;
-                };
-
-                for child in children {
-                    if !matches!(child.data.borrow().value, NodeValue::List(_)) {
-                        continue;
-                    }
-
-                    if extract_metadata_from_child_list(&mut link, child).is_err() {
-                        continue;
-                    }
-                }
-
-                Some(link)
-            } else {
-                None
-            }
-        })
-        .fold(HashMap::new(), |mut acc, link| {
-            if !acc.contains_key(&link.url) {
-                acc.insert(link.url.clone(), link);
-            }
-
-            acc
         });
+
+    for list_item_node in iter_list_items {
+        let mut children = list_item_node.children();
+
+        let Some(para) = children.next() else {
+            continue;
+        };
+
+        if !matches!(para.data.borrow().value, NodeValue::Paragraph) {
+            continue;
+        }
+
+        let Ok(link) = extract_link_from_paragraph(para) else {
+            continue;
+        };
+
+        let link = links.entry(link.url.clone()).or_insert_with(|| link);
+
+        for child in children {
+            if !matches!(child.data.borrow().value, NodeValue::List(_)) {
+                continue;
+            }
+
+            if extract_metadata_from_child_list(link, child).is_err() {
+                continue;
+            }
+        }
+    }
 
     let links = links
         .into_values()
@@ -370,7 +365,6 @@ fn extract_metadata_from_child_list<'a>(
         }
         let Ok(first_child_text) = fmt_cmark(first_child) else { continue };
 
-        // TODO: actually handle these things!
         match first_child_text.split(':').next() {
             Some("tags") => {
                 let mut tags: HashSet<_> = first_child_text["tags:".len()..]
@@ -400,26 +394,29 @@ fn extract_metadata_from_child_list<'a>(
 
                 link.tags.extend(tags);
             }
+
             Some("via") => {
                 link.via = Some(parse_via(first_child_text["via:".len()..].trim()));
             }
+
             Some("notes") => {
                 if let Some(child) = list_item_children.next() {
                     if !matches!(child.data.borrow().value, NodeValue::List(_)) {
                         continue;
                     }
 
-                    let mut notes: String = child
-                        .children()
-                        .flat_map(|list_item| list_item.children())
-                        .filter_map(|node| fmt_cmark(node).ok())
-                        .collect();
-
-                    if let Some(prior_notes) = &link.notes {
-                        notes = prior_notes.to_string() + &notes;
-                    }
-
-                    let notes = notes.trim().to_string();
+                    let notes = itertools::join(
+                        itertools::chain(
+                            link.notes.iter().map(|xs| xs.to_string()),
+                            child
+                                .children()
+                                .flat_map(|list_item| list_item.children())
+                                .filter_map(|node| fmt_cmark(node).ok()),
+                        ),
+                        "\n",
+                    )
+                    .trim()
+                    .to_string();
 
                     link.notes = if notes.is_empty() { None } else { Some(notes) };
                 }
@@ -609,15 +606,6 @@ mod tests {
 
         process_input(
             r#"
-# just plain links
-
-- plain text title w/link: https://foo.bar/baz 
-- https://bar.dev/baz 
-- [single url](https://google.com/)
-- [single url with title](https://apple.com/ "title")
-- some *markdown*: https://foo.baz
-- no anchors: https://grump.bump/fromp#bomp
-
 # read links
 
 - read link *markdown*: https://foo.baz
@@ -625,13 +613,17 @@ mod tests {
     - tags: alpha, beta
         - gamma
         - epsilon, mu
+    - notes:
+        - # just testing
+        - wow, so interesting
+        - uhh
+          - Ok(result)
+          - and yet what now
 - read link *other markdown*: https://foo.baz
     - tags: foo, bar, baz
     - via: https://bar.dev/baz
     - notes:
-        - # just testing
-        - wow, so interesting
-    - notes:
+        - testing
         - ```rust
           fn main() -> {}
           ```
@@ -644,7 +636,10 @@ mod tests {
         let mut s = store.values().await?;
 
         while let Some(v) = s.next().await {
-            dbg!(v);
+            let Ok(frontmatter): Result<Frontmatter, _> = v.try_into() else { continue };
+            let toml_out = toml::to_string_pretty(&frontmatter)?;
+
+            eprintln!("+++\n{}\n+++\n{}", toml_out, frontmatter.notes());
         }
 
         Ok(())
