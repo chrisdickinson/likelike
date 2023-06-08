@@ -21,10 +21,11 @@ struct Args {
     database_url: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Default, Clone, Copy, Debug, ValueEnum)]
 enum ShowMode {
     Text,
     Source,
+    #[default]
     Metadata,
 }
 
@@ -98,6 +99,7 @@ async fn main() -> eyre::Result<()> {
                         let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
                         let link_headers =
                             serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
+                        println!("{}", link.url());
                         println!("{}", link_meta);
                         println!("{}", link_headers);
                     }

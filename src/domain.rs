@@ -114,6 +114,19 @@ impl Link {
         }
     }
 
+    pub fn is_pdf(&self) -> bool {
+        matches!(
+            self.http_headers
+                .as_ref()
+                .and_then(|hdrs| hdrs.get("content-type"))
+                .and_then(|xs| xs.last())
+                .map(|xs| xs.as_str()),
+            Some(
+                "application/pdf"
+            )
+        )
+    }
+
     pub fn is_html(&self) -> bool {
         matches!(
             self.http_headers
@@ -204,11 +217,27 @@ impl Link {
     }
 
     pub fn extract_text(&self) -> Option<String> {
-        if let (true, Some(src)) = (self.is_html(), &self.src) {
-            Some(html2text::from_read(src.as_slice(), 80))
-        } else {
-            None
+        if let Some(src) = &self.src {
+            if self.is_html() {
+                return Some(html2text::from_read(src.as_slice(), 80))
+            } else if self.is_pdf() {
+
+                if let Ok(output) = std::thread::scope(|s| {
+                    s.spawn(|| {
+                        // pdf_extract LOVES to panic
+                        std::panic::set_hook(Box::new(|_| {
+                        }));
+
+                        return pdf_extract::extract_text_from_mem(src).ok()
+                    }).join()
+                }) {
+                    return output
+                }
+
+            }
         }
+
+        None
     }
 
     pub fn last_fetched(&self) -> Option<DateTime<Utc>> {

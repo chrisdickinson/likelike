@@ -3,6 +3,7 @@ use futures::{pin_mut, StreamExt};
 use html5ever::driver::{self, ParseOpts};
 
 use scraper::{Html, Selector};
+use std::io::copy;
 use std::{collections::HashMap, str::from_utf8};
 use tendril::TendrilSink;
 
@@ -180,29 +181,6 @@ fn process_html(mut link: Link, doc: &Html) -> eyre::Result<Link> {
     Ok(link)
 }
 
-async fn stream_html<Store>(
-    mut link: Link,
-    store: &Store,
-    link_source: &LinkSource<'_>,
-    body: <Store as FetchLinkMetadata>::Body,
-) -> eyre::Result<Link>
-where
-    Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
-{
-    let mut parser = driver::parse_document(Html::new_document(), ParseOpts::default());
-
-    pin_mut!(body);
-    while let Some(chunk) = body.next().await {
-        let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
-        parser.process(chunk.into());
-    }
-
-    let doc: Html = parser.finish();
-    link = process_html(link, &doc)?;
-    link.src = Some(doc.root_element().html().into());
-    Ok(link)
-}
-
 pub(crate) async fn fetch_link<Store>(
     mut link: Link,
     store: &Store,
@@ -212,7 +190,6 @@ where
     Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
 {
     if link.last_fetched.is_some() {
-        eprintln!("not fetching {}", link.url);
         return Ok(link);
     }
 
@@ -252,21 +229,19 @@ where
                     acc
                 });
 
+            let content_length: Option<usize> = http_headers.get("content-length").and_then(|v| v.last()).into_iter().find_map(|xs| xs.parse().ok());
+
             link.http_headers = Some(http_headers);
-            if let Some(
-                "text/html"
-                | "text/html;charset=utf-8"
-                | "text/html;charset=UTF-8"
-                | "text/html; charset=utf-8"
-                | "text/html; charset=UTF-8",
-            ) = link
-                .http_headers
-                .as_ref()
-                .and_then(|hdrs| hdrs.get("content-type"))
-                .and_then(|xs| xs.last())
-                .map(|xs| xs.as_str())
-            {
-                return stream_html(link, store, link_source, body).await;
+            if link.is_html() || link.is_pdf() {
+                let mut data = Vec::with_capacity(content_length.unwrap_or(8192));
+                let ptr = &mut data;
+
+                pin_mut!(body);
+                while let Some(chunk) = body.next().await {
+                    copy(&mut chunk.as_ref(), &mut data)?;
+                }
+
+                link.src = Some(data);
             }
         }
     }
@@ -283,14 +258,15 @@ where
     Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
 {
     if link.last_processed.is_some() {
-        eprintln!("not processing {}", link.url);
         return Ok(link);
     }
 
-    if let (true, Some(src)) = (link.is_html(), &link.src) {
-        let html = String::from_utf8_lossy(src.as_ref());
-        let doc = Html::parse_document(html.as_ref());
-        link = process_html(link, &doc)?;
+    if let Some(src) = &link.src {
+        if link.is_html() {
+            let html = String::from_utf8_lossy(src.as_ref());
+            let doc = Html::parse_document(html.as_ref());
+            link = process_html(link, &doc)?;
+        }
     }
 
     Ok(link)
@@ -347,7 +323,6 @@ where
         }
     }
 
-    eprintln!("enrich {}...", link.url);
     link = fetch_link(link, store, link_source).await?;
     link = process_link(link, store, link_source).await?;
 
