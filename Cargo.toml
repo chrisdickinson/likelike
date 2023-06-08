@@ -13,6 +13,7 @@ comrak = "0.15.0"
 dirs = "4.0.0"
 eyre = "0.6.8"
 futures = "0.3.25"
+html2text = "0.6.0"
 html5ever = "0.26.0"
 include_dir = "0.7.3"
 itertools = "0.10.5"
@@ -27,4 +28,5 @@ tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
 toml = "0.5.9"
 url = { version = "2.3.1", features = ["serde"] }
+wildmatch = "2.1.1"
 zstd = "0.12.3"

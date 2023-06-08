@@ -51,9 +51,12 @@ enum Commands {
     /// frontmatter.
     Export { output: PathBuf },
 
-    /// Show information about a given link.
+    /// Show information about a given link. Accepts globstar patterns (be sure to single-quote
+    /// them!)
     Show {
         url: String,
+
+        /// Only show metadata information: meta tags & http headers
         #[arg(short, long)] meta: bool
     },
 }
@@ -70,16 +73,16 @@ async fn main() -> eyre::Result<()> {
 
     match cli.command {
         Commands::Show { url, meta } => {
-            let link = store.get(url.as_str()).await?;
+            let mut links = store.glob(url.as_str()).await?;
 
-            if let Some(link) = link {
+            while let Some(link) = links.next().await {
                 if meta {
                     let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
                     let link_headers = serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
                     eprintln!("{}", link_meta);
                     eprintln!("{}", link_headers);
-                } else if let Some(src) = &link.src() {
-                    eprintln!("{}", String::from_utf8_lossy(src));
+                } else if let Some(src) = link.extract_text() {
+                    eprintln!("{}", src);
                 } else {
                     eprintln!("{:?}", link);
                 }

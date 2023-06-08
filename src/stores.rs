@@ -23,7 +23,7 @@ impl<T> HttpClientWrap<T> {
     }
 
     pub fn wrap(inner: T) -> Self {
-        let agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+        let agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"), " (github.com/chrisdickinson/likelike)");
 
         let max_redirects: usize = std::env::var("LIKELIKE_MAX_REDIRECTS")
             .ok()
@@ -393,21 +393,19 @@ impl TryFrom<LinkRow> for Link {
         let meta = value
             .meta
             .iter()
-            .filter_map(|src| serde_json::from_str(src).ok())
-            .next();
+            .find_map(|src| serde_json::from_str(src).ok());
+
         let src = value
             .src
             .iter()
-            .filter_map(|src| zstd::decode_all(src.as_slice()).ok())
-            .next()
+            .find_map(|src| zstd::decode_all(src.as_slice()).ok())
             .map(Into::into);
 
         let http_headers = value
             .http_headers
             .iter()
             .filter_map(|src| zstd::decode_all(src.as_slice()).ok())
-            .filter_map(|src| serde_json::from_slice(src.as_slice()).ok())
-            .next();
+            .find_map(|src| serde_json::from_slice(src.as_slice()).ok());
 
         Ok(Link {
             url: value.url,
@@ -488,6 +486,47 @@ impl ReadLinkInformation for SqliteStore {
                     http_headers
                 FROM "links"
                 "#,
+            )
+            .fetch(&mut *sqlite);
+
+            for await value in input {
+                let Ok(value) = value else { continue };
+                let Ok(link) = value.try_into() else { continue };
+
+                yield link
+            }
+        };
+
+        Ok(Box::pin(stream))
+    }
+
+    async fn glob<'a, 'b: 'a>(&'a self, pattern: &'b str) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+        let mut sqlite = self.sqlite.lock().await;
+
+        let stream = stream! {
+            let input = sqlx::query_as!(
+                LinkRow,
+                r#"
+                SELECT
+                    url,
+                    title,
+                    tags,
+                    via,
+                    notes,
+                    found_at,
+                    read_at,
+                    published_at,
+                    from_filename,
+                    image,
+                    NULL as "src?: Vec<u8>", -- explicitly DO NOT FETCH the source data
+                    meta,
+                    last_fetched,
+                    last_processed,
+                    http_headers
+                FROM "links"
+                WHERE url GLOB ?
+                "#,
+                pattern
             )
             .fetch(&mut *sqlite);
 

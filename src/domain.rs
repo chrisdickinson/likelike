@@ -204,6 +204,14 @@ impl Link {
         self.src.as_deref()
     }
 
+    pub fn extract_text(&self) -> Option<String> {
+        if let (true, Some(src)) = (self.is_html(), &self.src) {
+            Some(html2text::from_read(src.as_slice(), 80))
+        } else {
+            None
+        }
+    }
+
     pub fn last_fetched(&self) -> Option<DateTime<Utc>> {
         self.last_fetched
     }
