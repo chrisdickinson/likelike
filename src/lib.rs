@@ -29,7 +29,10 @@ pub use crate::stores::*;
 pub trait ReadLinkInformation {
     async fn get(&self, link: &str) -> eyre::Result<Option<Link>>;
     async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>>;
-    async fn glob<'a, 'b: 'a>(&'a self, pattern: &'b str) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn glob<'a, 'b: 'a>(
+        &'a self,
+        pattern: &'b str,
+    ) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
         let m = wildmatch::WildMatch::new(pattern);
         let values = self.values().await?;
 

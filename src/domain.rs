@@ -1,4 +1,3 @@
-
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use serde::Serialize;
 use slugify::slugify;
@@ -363,7 +362,8 @@ impl TryFrom<Link> for Frontmatter {
                     .map(|xs| xs.format("%Y-%m-%d").to_string()),
 
                 meta: link
-                    .meta.unwrap_or_default()
+                    .meta
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|(k, mut v)| (k, v.pop().unwrap_or_default()))
                     .collect(),

@@ -76,10 +76,18 @@ fn process_html(mut link: Link, doc: &Html) -> eyre::Result<Link> {
 
             "meta" => {
                 let mut name = None;
-                let mut content = None;
+                let mut content = element.text().next();
+
                 for (attrname, attrvalue) in ev.attrs() {
                     match attrname {
                         "name" => name.replace(attrvalue),
+
+                        // RDFa
+                        "property" => name.replace(attrvalue),
+
+                        // Microdata
+                        "itemprop" => name.replace(attrvalue),
+
                         "content" => content.replace(attrvalue),
                         _ => continue,
                     };

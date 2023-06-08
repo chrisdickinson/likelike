@@ -1,8 +1,9 @@
 use futures::{future::join_all, StreamExt};
+use serde::Deserialize;
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use likelike::{
     process_input, Frontmatter, HttpClientWrap, LinkSource, ReadLinkInformation, SqliteStore,
 };
@@ -18,6 +19,13 @@ struct Args {
     /// will be "sqlite:///Users/foo/Library/Application Support/likelike.sqlite3".
     #[arg(short, long)]
     database_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ShowMode {
+    Text,
+    Source,
+    Metadata,
 }
 
 #[derive(Parser, Debug)]
@@ -57,7 +65,8 @@ enum Commands {
         url: String,
 
         /// Only show metadata information: meta tags & http headers
-        #[arg(short, long)] meta: bool
+        #[arg(short, long)]
+        mode: ShowMode,
     },
 }
 
@@ -72,19 +81,26 @@ async fn main() -> eyre::Result<()> {
     };
 
     match cli.command {
-        Commands::Show { url, meta } => {
+        Commands::Show { url, mode } => {
             let mut links = store.glob(url.as_str()).await?;
 
             while let Some(link) = links.next().await {
-                if meta {
-                    let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
-                    let link_headers = serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
-                    eprintln!("{}", link_meta);
-                    eprintln!("{}", link_headers);
-                } else if let Some(src) = link.extract_text() {
-                    eprintln!("{}", src);
-                } else {
-                    eprintln!("{:?}", link);
+                match mode {
+                    ShowMode::Text => {
+                        if let Some(src) = link.extract_text() {
+                            println!("{}", src);
+                        }
+                    },
+                    ShowMode::Source => if let Some(src) = link.src() {
+                        println!("{}", String::from_utf8_lossy(src));
+                    },
+                    ShowMode::Metadata => {
+                        let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
+                        let link_headers =
+                            serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
+                        println!("{}", link_meta);
+                        println!("{}", link_headers);
+                    }
                 }
             }
         }

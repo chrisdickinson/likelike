@@ -23,7 +23,12 @@ impl<T> HttpClientWrap<T> {
     }
 
     pub fn wrap(inner: T) -> Self {
-        let agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"), " (github.com/chrisdickinson/likelike)");
+        let agent = concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION"),
+            " (github.com/chrisdickinson/likelike)"
+        );
 
         let max_redirects: usize = std::env::var("LIKELIKE_MAX_REDIRECTS")
             .ok()
@@ -500,7 +505,10 @@ impl ReadLinkInformation for SqliteStore {
         Ok(Box::pin(stream))
     }
 
-    async fn glob<'a, 'b: 'a>(&'a self, pattern: &'b str) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn glob<'a, 'b: 'a>(
+        &'a self,
+        pattern: &'b str,
+    ) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
         let mut sqlite = self.sqlite.lock().await;
 
         let stream = stream! {
@@ -518,7 +526,7 @@ impl ReadLinkInformation for SqliteStore {
                     published_at,
                     from_filename,
                     image,
-                    NULL as "src?: Vec<u8>", -- explicitly DO NOT FETCH the source data
+                    src,
                     meta,
                     last_fetched,
                     last_processed,
