@@ -50,6 +50,12 @@ enum Commands {
     /// Export links from the database as zola markdown documents with Link metadata included in
     /// frontmatter.
     Export { output: PathBuf },
+
+    /// Show information about a given link.
+    Show {
+        url: String,
+        #[arg(short, long)] meta: bool
+    },
 }
 
 #[tokio::main]
@@ -63,6 +69,23 @@ async fn main() -> eyre::Result<()> {
     };
 
     match cli.command {
+        Commands::Show { url, meta } => {
+            let link = store.get(url.as_str()).await?;
+
+            if let Some(link) = link {
+                if meta {
+                    let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
+                    let link_headers = serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
+                    eprintln!("{}", link_meta);
+                    eprintln!("{}", link_headers);
+                } else if let Some(src) = &link.src() {
+                    eprintln!("{}", String::from_utf8_lossy(src));
+                } else {
+                    eprintln!("{:?}", link);
+                }
+            }
+        }
+
         Commands::Export { output } => {
             let mut links = store.values().await?;
 
@@ -138,7 +161,6 @@ fn _find_markdown_files(
         let Ok(metadata) = std::fs::metadata(file.as_path()) else { continue };
         if metadata.is_dir() {
             let entries: Vec<_> = std::fs::read_dir(file.as_path())?
-                .into_iter()
                 .filter_map(|file| Some(file.ok()?.path()))
                 .collect();
 

@@ -1,6 +1,6 @@
-use chrono::serde::ts_seconds_option;
+
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use slugify::slugify;
 use std::collections::HashMap;
 use std::fs::read_to_string;
@@ -10,6 +10,7 @@ use std::{borrow::Cow, fmt::Debug, path::Path};
 pub struct LinkSource<'a> {
     pub(crate) filename: Option<Cow<'a, str>>,
     pub(crate) created: Option<DateTime<Utc>>,
+    pub(crate) modified: Option<DateTime<Utc>>,
     pub(crate) content: Cow<'a, str>,
 }
 
@@ -17,11 +18,13 @@ impl<'a> LinkSource<'a> {
     pub fn new(
         filename: Option<&'a Path>,
         created: Option<DateTime<Utc>>,
+        modified: Option<DateTime<Utc>>,
         content: Cow<'a, str>,
     ) -> Self {
         Self {
             filename: filename.map(|xs| xs.to_string_lossy()),
             created,
+            modified,
             content,
         }
     }
@@ -29,16 +32,24 @@ impl<'a> LinkSource<'a> {
     pub fn from_path<'b: 'a>(p: &'b Path) -> eyre::Result<Self> {
         // Example input: "20220115-link-dump.md"
         let mut created = None;
+        let mut modified = None;
 
-        'a: {
-            let Some(filename) = p.file_name() else { break 'a };
-            let Some(filename) = filename.to_str() else { break 'a };
-            let Some(maybe_date) = filename.split('-').next() else { break 'a };
-            let Ok(date) = NaiveDate::parse_from_str(maybe_date, "%Y%m%d") else { break 'a };
-            let Some(datetime) = date.and_hms_milli_opt(0, 0, 0, 0) else { break 'a };
-            let Some(datetime) = Local.from_local_datetime(&datetime).latest() else { break 'a };
+        'created_from_filename: {
+            let Some(filename) = p.file_name() else { break 'created_from_filename };
+            let Some(filename) = filename.to_str() else { break 'created_from_filename };
+            let Some(maybe_date) = filename.split('-').next() else { break 'created_from_filename };
+            let Ok(date) = NaiveDate::parse_from_str(maybe_date, "%Y%m%d") else { break 'created_from_filename };
+            let Some(datetime) = date.and_hms_milli_opt(0, 0, 0, 0) else { break 'created_from_filename };
+            let Some(datetime) = Local.from_local_datetime(&datetime).latest() else { break 'created_from_filename };
 
             created.replace(DateTime::<Utc>::from(datetime));
+        }
+
+        'modified_from_fs: {
+            let Ok(metadata) = std::fs::metadata(p) else { break 'modified_from_fs };
+            let Ok(mtime) = metadata.modified() else { break 'modified_from_fs };
+
+            modified.replace(DateTime::<Utc>::from(mtime));
         }
 
         let content: Cow<'_, str> = Cow::Owned(read_to_string(p)?);
@@ -47,6 +58,7 @@ impl<'a> LinkSource<'a> {
             filename: Some(p.to_string_lossy()),
             content,
             created,
+            modified,
         })
     }
 
@@ -57,7 +69,7 @@ impl<'a> LinkSource<'a> {
 
 impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
     fn from(xs: &'outer str) -> Self {
-        LinkSource::new(None, Some(Utc::now()), Cow::Borrowed(xs))
+        LinkSource::new(None, Some(Utc::now()), Some(Utc::now()), Cow::Borrowed(xs))
     }
 }
 
@@ -67,7 +79,7 @@ impl<'inner, 'outer: 'inner> From<&'outer str> for LinkSource<'inner> {
 ///
 /// This structure supports tagging, annotating notes on a link, marking "found at",
 /// "reaad at", and "published at" data, and surfacing provenance.
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug)]
 pub struct Link {
     pub(crate) url: String,
     pub(crate) title: Option<String>,
@@ -75,17 +87,23 @@ pub struct Link {
     pub(crate) tags: Vec<String>,
     pub(crate) notes: Option<String>,
 
-    #[serde(with = "ts_seconds_option")]
     pub(crate) found_at: Option<DateTime<Utc>>,
 
-    #[serde(with = "ts_seconds_option")]
     pub(crate) read_at: Option<DateTime<Utc>>,
 
-    #[serde(with = "ts_seconds_option")]
     pub(crate) published_at: Option<DateTime<Utc>>,
 
     pub(crate) from_filename: Option<String>,
     pub(crate) image: Option<String>,
+
+    pub(crate) meta: Option<HashMap<String, Vec<String>>>,
+    pub(crate) src: Option<Vec<u8>>,
+
+    pub(crate) last_fetched: Option<DateTime<Utc>>,
+
+    pub(crate) last_processed: Option<DateTime<Utc>>,
+
+    pub(crate) http_headers: Option<HashMap<String, Vec<String>>>,
 }
 
 impl Link {
@@ -95,6 +113,23 @@ impl Link {
             url: url.as_ref().to_string(),
             ..Default::default()
         }
+    }
+
+    pub fn is_html(&self) -> bool {
+        matches!(
+            self.http_headers
+                .as_ref()
+                .and_then(|hdrs| hdrs.get("content-type"))
+                .and_then(|xs| xs.last())
+                .map(|xs| xs.as_str()),
+            Some(
+                "text/html"
+                    | "text/html;charset=utf-8"
+                    | "text/html;charset=UTF-8"
+                    | "text/html; charset=utf-8"
+                    | "text/html; charset=UTF-8"
+            )
+        )
     }
 
     pub fn via_mut(&mut self) -> &mut Option<Via> {
@@ -163,6 +198,26 @@ impl Link {
 
     pub fn image_mut(&mut self) -> &mut Option<String> {
         &mut self.image
+    }
+
+    pub fn src(&self) -> Option<&[u8]> {
+        self.src.as_deref()
+    }
+
+    pub fn last_fetched(&self) -> Option<DateTime<Utc>> {
+        self.last_fetched
+    }
+
+    pub fn last_processed(&self) -> Option<DateTime<Utc>> {
+        self.last_processed
+    }
+
+    pub fn http_headers(&self) -> Option<&HashMap<String, Vec<String>>> {
+        self.http_headers.as_ref()
+    }
+
+    pub fn meta(&self) -> Option<&HashMap<String, Vec<String>>> {
+        self.meta.as_ref()
     }
 }
 
@@ -244,6 +299,8 @@ pub struct FrontmatterExtra {
     image: Option<String>,
     url: FrontmatterUrl,
     via: Option<FrontmatterVia>,
+
+    meta: HashMap<String, String>,
 }
 
 impl Frontmatter {
@@ -296,6 +353,12 @@ impl TryFrom<Link> for Frontmatter {
                 published_at: link
                     .published_at
                     .map(|xs| xs.format("%Y-%m-%d").to_string()),
+
+                meta: link
+                    .meta.unwrap_or_default()
+                    .into_iter()
+                    .map(|(k, mut v)| (k, v.pop().unwrap_or_default()))
+                    .collect(),
 
                 from_filename: link.from_filename,
                 image: link.image,

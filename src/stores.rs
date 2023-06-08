@@ -6,7 +6,7 @@ use chrono::{TimeZone, Utc};
 use futures::{stream, Stream};
 use include_dir::{include_dir, Dir};
 use reqwest::{header::HeaderMap, redirect::Policy, Client, ClientBuilder};
-use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqliteConnection};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Row, SqliteConnection};
 use std::{collections::HashMap, env, fmt::Debug, pin::Pin, str::FromStr, time::Duration};
 use tokio::sync::Mutex;
 
@@ -100,12 +100,8 @@ impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for HttpClientWra
 
 #[async_trait::async_trait]
 impl<T: WriteLinkInformation + Send + Sync> WriteLinkInformation for HttpClientWrap<T> {
-    async fn update(&self, link: &Link) -> eyre::Result<bool> {
-        self.inner.update(link).await
-    }
-
-    async fn create(&self, link: &Link) -> eyre::Result<bool> {
-        self.inner.create(link).await
+    async fn write(&self, link: &Link) -> eyre::Result<bool> {
+        self.inner.write(link).await
     }
 }
 
@@ -142,12 +138,8 @@ impl<T: ReadLinkInformation + Send + Sync> ReadLinkInformation for DummyWrap<T> 
 
 #[async_trait::async_trait]
 impl<T: WriteLinkInformation + Send + Sync> WriteLinkInformation for DummyWrap<T> {
-    async fn update(&self, link: &Link) -> eyre::Result<bool> {
-        self.inner.update(link).await
-    }
-
-    async fn create(&self, link: &Link) -> eyre::Result<bool> {
-        self.inner.create(link).await
+    async fn write(&self, link: &Link) -> eyre::Result<bool> {
+        self.inner.write(link).await
     }
 }
 
@@ -187,13 +179,7 @@ impl ReadLinkInformation for InMemoryStore {
 
 #[async_trait::async_trait]
 impl WriteLinkInformation for InMemoryStore {
-    async fn update(&self, link: &Link) -> eyre::Result<bool> {
-        let mut data = self.data.lock().await;
-        data.insert(link.url.clone(), link.clone());
-        Ok(true)
-    }
-
-    async fn create(&self, link: &Link) -> eyre::Result<bool> {
+    async fn write(&self, link: &Link) -> eyre::Result<bool> {
         let mut data = self.data.lock().await;
         data.insert(link.url.clone(), link.clone());
         Ok(true)
@@ -237,11 +223,25 @@ impl SqliteStore {
 
         let mut files: Vec<_> = MIGRATIONS_DIR.files().collect();
         files.sort_by(|lhs, rhs| lhs.path().cmp(rhs.path()));
-        for file in files {
+        let version = files.len();
+
+        let last_index = sqlx::query("select version from database_version limit 1")
+            .fetch_one(&mut sqlite)
+            .await
+            .map(|result| result.get("version"))
+            .unwrap_or_else(|_| 0u32);
+
+        let migration_count = files.len() as u32;
+        for file in files.into_iter().skip(last_index as usize) {
             sqlx::query(unsafe { std::str::from_utf8_unchecked(file.contents()) })
                 .execute(&mut sqlite)
                 .await?;
         }
+
+        sqlx::query(r#"
+            insert into database_version (id, version) values (0, ?) on conflict(id) do update set version = excluded.version
+        "#).bind(migration_count).execute(&mut sqlite)
+            .await?;
 
         Ok(Self {
             sqlite: Mutex::new(sqlite),
@@ -251,54 +251,33 @@ impl SqliteStore {
 
 #[async_trait::async_trait]
 impl WriteLinkInformation for SqliteStore {
-    async fn update(&self, link: &Link) -> eyre::Result<bool> {
-        let mut sqlite = self.sqlite.lock().await;
-        let tags = serde_json::to_string(&link.tags)?;
-
-        let via = link
-            .via
-            .as_ref()
-            .map(|via| serde_json::to_string(via).expect("failed to serialize Via column"));
-
-        let found_at = link.found_at.map(|xs| xs.timestamp_millis());
-        let read_at = link.read_at.map(|xs| xs.timestamp_millis());
-
-        let results = sqlx::query!(
-            r#"
-            UPDATE "links" SET
-                title = ?,
-                tags = json(?),
-                via = ?,
-                notes = ?,
-                found_at = ?,
-                read_at = ?,
-                published_at = ?,
-                from_filename = ?
-            WHERE "url" = ?
-            "#,
-            link.title,
-            tags,
-            via,
-            link.notes,
-            found_at,
-            read_at,
-            link.published_at,
-            link.from_filename,
-            link.url
-        )
-        .execute(&mut *sqlite)
-        .await?;
-
-        Ok(results.rows_affected() > 0)
-    }
-
-    async fn create(&self, link: &Link) -> eyre::Result<bool> {
+    async fn write(&self, link: &Link) -> eyre::Result<bool> {
         let mut sqlite = self.sqlite.lock().await;
         let tags = serde_json::to_string(&link.tags)?;
         let via = serde_json::to_string(&link.via)?;
 
         let found_at = link.found_at.map(|xs| xs.timestamp_millis());
         let read_at = link.read_at.map(|xs| xs.timestamp_millis());
+
+        let last_fetched = link.last_fetched.map(|xs| xs.timestamp_millis());
+        let last_processed = link.last_processed.map(|xs| xs.timestamp_millis());
+
+        let src = link
+            .src
+            .iter()
+            .filter_map(|src| zstd::encode_all(src.as_slice(), 0).ok())
+            .next();
+        let meta = link
+            .meta
+            .iter()
+            .filter_map(|src| serde_json::to_string(src).ok())
+            .next();
+        let http_headers = link
+            .http_headers
+            .iter()
+            .filter_map(|http_headers| serde_json::to_vec(http_headers).ok())
+            .filter_map(|src| zstd::encode_all(src.as_slice(), 0).ok())
+            .next();
 
         let results = sqlx::query!(
             r#"
@@ -311,7 +290,12 @@ impl WriteLinkInformation for SqliteStore {
                 read_at,
                 from_filename,
                 url,
-                image
+                image,
+                src,
+                meta,
+                last_fetched,
+                last_processed,
+                http_headers
             ) VALUES (
                 ?,
                 ?,
@@ -321,8 +305,26 @@ impl WriteLinkInformation for SqliteStore {
                 ?,
                 ?,
                 ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
                 ?
-            )
+            ) ON CONFLICT (url) DO UPDATE
+                SET title=excluded.title,
+                    tags=excluded.tags,
+                    via=excluded.via,
+                    notes=excluded.notes,
+                    found_at=excluded.found_at,
+                    read_at=excluded.read_at,
+                    from_filename=excluded.from_filename,
+                    image=excluded.image,
+                    src=excluded.src,
+                    meta=excluded.meta,
+                    last_fetched=excluded.last_fetched,
+                    last_processed=excluded.last_processed,
+                    http_headers=excluded.http_headers
             "#,
             link.title,
             tags,
@@ -332,7 +334,12 @@ impl WriteLinkInformation for SqliteStore {
             read_at,
             link.from_filename,
             link.url,
-            link.image
+            link.image,
+            src,
+            meta,
+            last_fetched,
+            last_processed,
+            http_headers
         )
         .execute(&mut *sqlite)
         .await?;
@@ -341,29 +348,28 @@ impl WriteLinkInformation for SqliteStore {
     }
 }
 
-#[async_trait::async_trait]
-impl ReadLinkInformation for SqliteStore {
-    async fn get(&self, link: &str) -> eyre::Result<Option<Link>> {
-        let mut sqlite = self.sqlite.lock().await;
-        let Some(value) = sqlx::query!(
-            r#"
-            SELECT
-                url,
-                title,
-                tags,
-                via,
-                notes,
-                found_at,
-                read_at,
-                published_at,
-                from_filename,
-                image
-            FROM "links" WHERE "url" = ?"#,
-            link
-        )
-        .fetch_optional(&mut *sqlite)
-        .await? else { return Ok(None) };
+struct LinkRow {
+    url: String,
+    title: Option<String>,
+    tags: String,
+    via: Option<String>,
+    notes: Option<String>,
+    found_at: Option<i64>,
+    read_at: Option<i64>,
+    published_at: Option<i64>,
+    from_filename: Option<String>,
+    image: Option<String>,
+    src: Option<Vec<u8>>,
+    meta: Option<String>,
+    last_fetched: Option<i64>,
+    last_processed: Option<i64>,
+    http_headers: Option<Vec<u8>>,
+}
 
+impl TryFrom<LinkRow> for Link {
+    type Error = eyre::Error;
+
+    fn try_from(value: LinkRow) -> Result<Self, Self::Error> {
         let found_at = value
             .found_at
             .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
@@ -376,7 +382,34 @@ impl ReadLinkInformation for SqliteStore {
             .published_at
             .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
 
-        Ok(Some(Link {
+        let last_fetched = value
+            .last_fetched
+            .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
+
+        let last_processed = value
+            .last_processed
+            .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
+
+        let meta = value
+            .meta
+            .iter()
+            .filter_map(|src| serde_json::from_str(src).ok())
+            .next();
+        let src = value
+            .src
+            .iter()
+            .filter_map(|src| zstd::decode_all(src.as_slice()).ok())
+            .next()
+            .map(Into::into);
+
+        let http_headers = value
+            .http_headers
+            .iter()
+            .filter_map(|src| zstd::decode_all(src.as_slice()).ok())
+            .filter_map(|src| serde_json::from_slice(src.as_slice()).ok())
+            .next();
+
+        Ok(Link {
             url: value.url,
             title: value.title,
             tags: serde_json::from_str(&value.tags[..])?,
@@ -389,14 +422,53 @@ impl ReadLinkInformation for SqliteStore {
             published_at,
             from_filename: value.from_filename,
             image: value.image,
-        }))
+            src,
+            meta,
+            last_fetched,
+            last_processed,
+            http_headers,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl ReadLinkInformation for SqliteStore {
+    async fn get(&self, link: &str) -> eyre::Result<Option<Link>> {
+        let mut sqlite = self.sqlite.lock().await;
+        let Some(value) = sqlx::query_as!(
+            LinkRow,
+            r#"
+            SELECT
+                url,
+                title,
+                tags,
+                via,
+                notes,
+                found_at,
+                read_at,
+                published_at,
+                from_filename,
+                image,
+                src,
+                meta,
+                last_fetched,
+                last_processed,
+                http_headers
+            FROM "links" WHERE "url" = ?"#,
+            link
+        )
+        .fetch_optional(&mut *sqlite)
+        .await? else { return Ok(None) };
+
+        Ok(Some(value.try_into()?))
     }
 
     async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
         let mut sqlite = self.sqlite.lock().await;
 
         let stream = stream! {
-            let input = sqlx::query!(
+            let input = sqlx::query_as!(
+                LinkRow,
                 r#"
                 SELECT
                     url,
@@ -408,7 +480,12 @@ impl ReadLinkInformation for SqliteStore {
                     read_at,
                     published_at,
                     from_filename,
-                    image
+                    image,
+                    NULL as "src?: Vec<u8>", -- explicitly DO NOT FETCH the source data
+                    meta,
+                    last_fetched,
+                    last_processed,
+                    http_headers
                 FROM "links"
                 "#,
             )
@@ -416,35 +493,9 @@ impl ReadLinkInformation for SqliteStore {
 
             for await value in input {
                 let Ok(value) = value else { continue };
+                let Ok(link) = value.try_into() else { continue };
 
-                let found_at = value
-                    .found_at
-                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
-
-                let read_at = value
-                    .read_at
-                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
-
-                let published_at = value
-                    .published_at
-                    .and_then(|xs| Utc.timestamp_millis_opt(xs).latest());
-
-                let Ok(tags) = serde_json::from_str(&value.tags[..]) else { continue };
-
-                yield Link {
-                    url: value.url,
-                    title: value.title,
-                    tags,
-                    via: value
-                        .via
-                        .and_then(|via| serde_json::from_str(&via[..]).ok()),
-                    notes: value.notes,
-                    found_at,
-                    read_at,
-                    published_at,
-                    from_filename: value.from_filename,
-                    image: value.image
-                }
+                yield link
             }
         };
 

@@ -17,3 +17,8 @@ create table if not exists "links" (
   from_filename text default(null),
   image text default(null)
 ) strict;
+
+create table if not exists "database_version" (
+  id integer default(0) primary key check (id = 0),
+  version int default 0
+) strict;

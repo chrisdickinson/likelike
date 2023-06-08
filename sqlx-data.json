@@ -1,6 +1,6 @@
 {
   "db": "SQLite",
-  "2440f97726ac7b02274b62cc656f928de146059fd73c9393dd96a804b9ea10ed": {
+  "00643866528a3208920c742a060ddb7d63df415215191c95b54ae63fc0884dd9": {
     "describe": {
       "columns": [
         {
@@ -52,6 +52,31 @@
           "name": "image",
           "ordinal": 9,
           "type_info": "Text"
+        },
+        {
+          "name": "src",
+          "ordinal": 10,
+          "type_info": "Blob"
+        },
+        {
+          "name": "meta",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_fetched",
+          "ordinal": 12,
+          "type_info": "Int64"
+        },
+        {
+          "name": "last_processed",
+          "ordinal": 13,
+          "type_info": "Int64"
+        },
+        {
+          "name": "http_headers",
+          "ordinal": 14,
+          "type_info": "Blob"
         }
       ],
       "nullable": [
@@ -63,93 +88,6 @@
         true,
         true,
         true,
-        true,
-        true
-      ],
-      "parameters": {
-        "Right": 0
-      }
-    },
-    "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at,\n                    published_at,\n                    from_filename,\n                    image\n                FROM \"links\"\n                "
-  },
-  "7cb6e82eb5ae0a4115bf310355ce04738d67a52b9c505a25733a67f508f9abec": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 9
-      }
-    },
-    "query": "\n            UPDATE \"links\" SET\n                title = ?,\n                tags = json(?),\n                via = ?,\n                notes = ?,\n                found_at = ?,\n                read_at = ?,\n                published_at = ?,\n                from_filename = ?\n            WHERE \"url\" = ?\n            "
-  },
-  "d23046d0dbc4cf7c40f982d3a9ff65aa9439b00b7656e3dddb9b7c7f27877e07": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 9
-      }
-    },
-    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                from_filename,\n                url,\n                image\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            )\n            "
-  },
-  "f3d841dea0632d51125a2a0aa2092593fb157d8dae4d58f6be5ca91bc22b0e18": {
-    "describe": {
-      "columns": [
-        {
-          "name": "url",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "title",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "tags",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "via",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "notes",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "found_at",
-          "ordinal": 5,
-          "type_info": "Int64"
-        },
-        {
-          "name": "read_at",
-          "ordinal": 6,
-          "type_info": "Int64"
-        },
-        {
-          "name": "published_at",
-          "ordinal": 7,
-          "type_info": "Int64"
-        },
-        {
-          "name": "from_filename",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "image",
-          "ordinal": 9,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        true,
-        false,
         true,
         true,
         true,
@@ -162,6 +100,118 @@
         "Right": 1
       }
     },
-    "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                published_at,\n                from_filename,\n                image\n            FROM \"links\" WHERE \"url\" = ?"
+    "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                published_at,\n                from_filename,\n                image,\n                src,\n                meta,\n                last_fetched,\n                last_processed,\n                http_headers\n            FROM \"links\" WHERE \"url\" = ?"
+  },
+  "525d145902c26750a6912913727bc4a3b0c4155a7f8592c6f79a2f577796b44d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 14
+      }
+    },
+    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                from_filename,\n                url,\n                image,\n                src,\n                meta,\n                last_fetched,\n                last_processed,\n                http_headers\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            ) ON CONFLICT (url) DO UPDATE\n                SET title=excluded.title,\n                    tags=excluded.tags,\n                    via=excluded.via,\n                    notes=excluded.notes,\n                    found_at=excluded.found_at,\n                    read_at=excluded.read_at,\n                    from_filename=excluded.from_filename,\n                    image=excluded.image,\n                    src=excluded.src,\n                    meta=excluded.meta,\n                    last_fetched=excluded.last_fetched,\n                    last_processed=excluded.last_processed,\n                    http_headers=excluded.http_headers\n            "
+  },
+  "d6bae5ba568989f7f7aa00f763076263001fe77ab59f6bc7cffe8fc2ffd4203a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "url",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "title",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "tags",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "via",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "notes",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "found_at",
+          "ordinal": 5,
+          "type_info": "Int64"
+        },
+        {
+          "name": "read_at",
+          "ordinal": 6,
+          "type_info": "Int64"
+        },
+        {
+          "name": "published_at",
+          "ordinal": 7,
+          "type_info": "Int64"
+        },
+        {
+          "name": "from_filename",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "image",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "src?: Vec<u8>",
+          "ordinal": 10,
+          "type_info": "Null"
+        },
+        {
+          "name": "meta",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_fetched",
+          "ordinal": 12,
+          "type_info": "Int64"
+        },
+        {
+          "name": "last_processed",
+          "ordinal": 13,
+          "type_info": "Int64"
+        },
+        {
+          "name": "http_headers",
+          "ordinal": 14,
+          "type_info": "Blob"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at,\n                    published_at,\n                    from_filename,\n                    image,\n                    NULL as \"src?: Vec<u8>\", -- explicitly DO NOT FETCH the source data\n                    meta,\n                    last_fetched,\n                    last_processed,\n                    http_headers\n                FROM \"links\"\n                "
   }
 }

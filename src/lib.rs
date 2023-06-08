@@ -1,26 +1,24 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use comrak::{
     self,
     arena_tree::Node,
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::{future::join_all, pin_mut, Stream, StreamExt, TryFutureExt};
-use html5ever::driver::{self, ParseOpts};
+use futures::Stream;
+
 use reqwest::header::HeaderMap;
-use scraper::{Html, Selector};
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     pin::Pin,
-    str::from_utf8,
 };
-use tendril::TendrilSink;
 
 mod domain;
+mod enrichment;
 mod stores;
 
 pub use crate::domain::*;
@@ -36,8 +34,7 @@ pub trait ReadLinkInformation {
 /// Write link information back to the link store.
 #[async_trait::async_trait]
 pub trait WriteLinkInformation {
-    async fn update(&self, link: &Link) -> eyre::Result<bool>;
-    async fn create(&self, link: &Link) -> eyre::Result<bool>;
+    async fn write(&self, link: &Link) -> eyre::Result<bool>;
 }
 
 #[async_trait::async_trait]
@@ -46,232 +43,6 @@ pub trait FetchLinkMetadata {
     type Body: Stream<Item = bytes::Bytes>;
 
     async fn fetch(&self, link: &Link) -> eyre::Result<Option<(Self::Headers, Self::Body)>>;
-}
-
-async fn enrich_link<Store>(
-    mut link: Link,
-    store: &Store,
-    link_source: &LinkSource<'_>,
-) -> eyre::Result<(Link, bool)>
-where
-    Store: FetchLinkMetadata + ReadLinkInformation + Send + Sync,
-{
-    Ok(
-        if let Some(mut known_link) = store.get(link.url.as_str()).await? {
-            known_link.read_at = {
-                if let Some(notes) = link.notes() {
-                    if !notes.trim().is_empty() {
-                        known_link.read_at.or_else(|| Some(Utc::now()))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            };
-
-            known_link.found_at = known_link
-                .found_at
-                .or(link.found_at)
-                .or(link_source.created);
-
-            known_link.from_filename = known_link
-                .from_filename
-                .or(link.from_filename)
-                .or_else(|| link_source.filename_string());
-
-            known_link.title = link.title.or(known_link.title);
-            known_link.notes = link.notes;
-            known_link.tags = link.tags;
-            known_link.via = link.via;
-
-            (known_link, true)
-        } else {
-            link.found_at = link_source.created;
-            link.from_filename = link_source.filename_string();
-
-            if let Some(notes) = link.notes() {
-                if !notes.trim().is_empty() {
-                    link.read_at = link_source.created;
-                }
-            }
-
-            if let Some((headers, body)) = store.fetch(&link).await? {
-                let mut pubdate: Option<(usize, DateTime<Utc>)> = None;
-                let mut title: Option<(usize, String)> = None;
-                let mut image: Option<(usize, String)> = None;
-
-                let mut update_pubdate = |weight, pd: &str| {
-                    let Ok(pd) = NaiveDate::parse_from_str(pd, "%Y-%m-%d") else { return };
-                    let Some(pd) = pd.and_hms_milli_opt(0, 0, 0, 0) else { return };
-                    let Some(pd) = Local.from_local_datetime(&pd).latest() else { return };
-                    let pd = DateTime::<Utc>::from(pd);
-
-                    if let Some((current, _)) = pubdate {
-                        if current < weight {
-                            pubdate.replace((weight, pd));
-                        }
-                    } else {
-                        pubdate.replace((weight, pd));
-                    }
-                };
-
-                let mut update_image = |weight, candidate: &str| {
-                    if let Some((current, _)) = image {
-                        if current < weight {
-                            image.replace((weight, candidate.to_string()));
-                        }
-                    } else {
-                        image.replace((weight, candidate.to_string()));
-                    }
-                };
-
-                let mut update_title = |weight, candidate: &str| {
-                    if let Some((current, _)) = title {
-                        if current < weight {
-                            title.replace((weight, candidate.to_string()));
-                        }
-                    } else {
-                        title.replace((weight, candidate.to_string()));
-                    }
-                };
-
-                'html: {
-                    let Ok(headers) = headers.try_into() else { break 'html };
-                    let Some(content_type) = headers.get("Content-Type") else { break 'html };
-                    let Ok(
-                    "text/html" |
-                    "text/html;charset=utf-8" |
-                    "text/html;charset=UTF-8" |
-                    "text/html; charset=utf-8" |
-                    "text/html; charset=UTF-8"
-                ) = content_type.to_str() else { break 'html };
-
-                    let selector = Selector::parse(
-                        r#"
-                        head title,head meta,time
-                    "#,
-                    )
-                    .expect("selector failed to parse");
-                    let mut parser =
-                        driver::parse_document(Html::new_document(), ParseOpts::default());
-
-                    pin_mut!(body);
-                    while let Some(chunk) = body.next().await {
-                        let Ok(chunk) = from_utf8(chunk.as_ref()) else { break };
-                        parser.process(chunk.into());
-                    }
-
-                    let doc = parser.finish();
-
-                    for element in doc.select(&selector) {
-                        let ev = element.value();
-                        match ev.name() {
-                            "title" => {
-                                let text: String = element.text().collect();
-                                update_title(2, text.as_str());
-                            }
-
-                            "time" => {
-                                let text: String = element.text().collect();
-                                if let Some(datetime) = element.value().attr("datetime") {
-                                    update_pubdate(2, datetime);
-                                }
-                            }
-
-                            "meta" => {
-                                let mut name = None;
-                                let mut content = None;
-                                for (attrname, attrvalue) in ev.attrs() {
-                                    match attrname {
-                                        "name" => name.replace(attrvalue),
-                                        "content" => content.replace(attrvalue),
-                                        _ => continue,
-                                    };
-
-                                    match (name, content) {
-                                        (None, _) => continue,
-
-                                        (Some("title"), Some(title)) => {
-                                            update_title(5, title);
-                                        }
-
-                                        (Some("og:title"), Some(title)) => {
-                                            update_title(4, title);
-                                        }
-
-                                        (Some("twitter:title"), Some(title)) => {
-                                            update_title(3, title);
-                                        }
-
-                                        (Some("twitter:text:title"), Some(title)) => {
-                                            update_title(0, title);
-                                        }
-
-                                        (Some("og:image:url"), Some(image)) => {
-                                            update_image(5, image);
-                                        }
-
-                                        (Some("og:image"), Some(image)) => {
-                                            update_image(5, image);
-                                        }
-
-                                        (Some("twitter:image:src"), Some(image)) => {
-                                            update_image(4, image);
-                                        }
-
-                                        (Some("twitter:image"), Some(image)) => {
-                                            update_image(4, image);
-                                        }
-
-                                        (Some("date.created"), Some(pubdate)) => {
-                                            update_pubdate(5, pubdate);
-                                        }
-
-                                        (Some("date"), Some(pubdate)) => {
-                                            update_pubdate(4, pubdate);
-                                        }
-
-                                        (Some("article:published_time"), Some(pubdate)) => {
-                                            update_pubdate(3, pubdate);
-                                        }
-
-                                        (Some("DC.Date"), Some(pubdate)) => {
-                                            update_pubdate(0, pubdate);
-                                        }
-
-                                        (Some(_), _) => continue,
-                                    }
-
-                                    break;
-                                }
-                            }
-
-                            _ => {
-                                let mut collected = 0;
-                                let text: String = element
-                                    .text()
-                                    .take_while(|x| {
-                                        collected += x.len();
-                                        collected < 512
-                                    })
-                                    .collect();
-
-                                if let Some(idx) = text.find("ublished") {
-                                    // eprintln!("div.<published> = {}", &text[idx..].trim());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                link.title = link.title.or_else(|| title.map(|(_, xs)| xs));
-                link.published_at = link.published_at.or_else(|| pubdate.map(|(_, xs)| xs));
-                link.image = link.image.or_else(|| image.map(|(_, xs)| xs));
-            }
-            (link, false)
-        },
-    )
 }
 
 pub async fn process_input<'a, S, Store>(input: S, store: &Store) -> eyre::Result<()>
@@ -327,20 +98,12 @@ where
         }
     }
 
-    let links = links
-        .into_values()
-        .map(|link| enrich_link(link, store, &link_source))
-        .map(|fut| {
-            fut.and_then(|(link, should_update)| async move {
-                if should_update {
-                    store.update(&link).await
-                } else {
-                    store.create(&link).await
-                }
-            })
-        });
-
-    join_all(links).await;
+    for link in links.into_values() {
+        let link = enrichment::enrich_link(link, store, &link_source).await?;
+        if let Err(e) = store.write(&link).await {
+            eprintln!("error fetching {}: {:?}", link.url, e);
+        }
+    }
 
     Ok(())
 }
