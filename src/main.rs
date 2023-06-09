@@ -1,4 +1,5 @@
 use futures::{future::join_all, StreamExt};
+use llm::{OutputRequest, ModelParameters};
 use serde::Deserialize;
 
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ struct Args {
 enum ShowMode {
     Text,
     Source,
+    Summary,
     #[default]
     Metadata,
 }
@@ -92,9 +94,11 @@ async fn main() -> eyre::Result<()> {
                             println!("{}", src);
                         }
                     },
+
                     ShowMode::Source => if let Some(src) = link.src() {
                         println!("{}", String::from_utf8_lossy(src));
                     },
+
                     ShowMode::Metadata => {
                         let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
                         let link_headers =
@@ -102,6 +106,101 @@ async fn main() -> eyre::Result<()> {
                         println!("{}", link.url());
                         println!("{}", link_meta);
                         println!("{}", link_headers);
+                    }
+
+                    ShowMode::Summary => {
+                        if let Some(src) = link.extract_text() {
+                            use std::io::Write;
+                            use llm::Model;
+
+                            let ggml = std::env::var("LIKELIKE_GGML").ok().unwrap_or_else(|| "ggml-vicuna-13B-1.1-q5_1.bin".to_string());
+                            // load a GGML model from disk
+                            let llama = llm::load::<llm::models::Llama>(
+                                // path to GGML file
+                                std::path::Path::new(ggml.as_str()),
+                                llm::VocabularySource::Model,
+                                // llm::ModelParameters
+                                ModelParameters {
+                                    context_size: 8192,
+                                    ..Default::default()
+                                },
+                                // load progress callback
+                                // llm::load_progress_callback_stdout
+                                |_| {}
+                            )
+                            .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
+
+                            // use the model to generate text from a prompt
+                            let mut session = llama.start_session(Default::default());
+
+                            let src: String = itertools::join(src.lines().filter(|xs| !xs.starts_with("[") && !xs.starts_with("#") && !xs.trim().is_empty()), "\n");
+
+                            let prompt = format!(indoc::indoc! {r#"### MAIN TEXT
+                            {}
+                            "#}, &src);
+
+                            let res = session.infer::<std::convert::Infallible>(
+                                // model to use for text generation
+                                &llama,
+                                // randomness provider
+                                &mut rand::thread_rng(),
+                                // the prompt to use for text generation, as well as other
+                                // inference parameters
+                                &llm::InferenceRequest {
+                                    prompt: prompt.as_str().into(),
+                                    parameters: &llm::InferenceParameters::default(),
+                                    play_back_previous_tokens: true,
+                                    maximum_token_count: None,
+                                },
+                                // llm::OutputRequest
+                                &mut Default::default(),
+                                // output callback
+                                |r| match r {
+                                    llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
+                                        print!("{t}");
+                                        std::io::stdout().flush().unwrap();
+                                        Ok(llm::InferenceFeedback::Continue)
+                                    }
+                                    _ => Ok(llm::InferenceFeedback::Continue),
+                                }
+                            );
+
+                            match res {
+                                Ok(result) => println!("\n\nInference stats:\n{result}"),
+                                Err(err) => println!("\naw heck {err}"),
+                            }
+
+                            let res = session.infer::<std::convert::Infallible>(
+                                // model to use for text generation
+                                &llama,
+                                // randomness provider
+                                &mut rand::thread_rng(),
+                                // the prompt to use for text generation, as well as other
+                                // inference parameters
+                                &llm::InferenceRequest {
+                                    prompt: "### 200 WORD SUMMARY\n".into(),
+                                    parameters: &llm::InferenceParameters::default(),
+                                    play_back_previous_tokens: true,
+                                    maximum_token_count: None,
+                                },
+                                // llm::OutputRequest
+                                &mut Default::default(),
+                                // output callback
+                                |r| match r {
+                                    llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
+                                        print!("{t}");
+                                        std::io::stdout().flush().unwrap();
+                                        Ok(llm::InferenceFeedback::Continue)
+                                    }
+                                    _ => Ok(llm::InferenceFeedback::Continue),
+                                }
+                            );
+
+                            match res {
+                                Ok(result) => println!("\n\nInference stats:\n{result}"),
+                                Err(err) => println!("\naw heck {err}"),
+                            }
+                        }
                     }
                 }
             }
