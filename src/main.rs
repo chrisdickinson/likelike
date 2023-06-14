@@ -1,7 +1,13 @@
 use futures::{future::join_all, StreamExt};
 
 #[cfg(feature = "llm")]
-use llm::{OutputRequest, ModelParameters};
+use itertools::Itertools;
+
+#[cfg(feature = "llm")]
+use llm::{samplers::TopPTopK, OutputRequest, ModelParameters};
+
+#[cfg(feature = "llm")]
+use std::sync::Arc;
 
 use std::path::PathBuf;
 
@@ -116,7 +122,6 @@ async fn main() -> eyre::Result<()> {
                     ShowMode::Summary => {
                         if let Some(src) = link.extract_text() {
                             use std::io::Write;
-                            use llm::Model;
 
                             let ggml = std::env::var("LIKELIKE_GGML").ok().unwrap_or_else(|| "ggml-vicuna-13B-1.1-q5_1.bin".to_string());
                             // load a GGML model from disk
@@ -135,75 +140,84 @@ async fn main() -> eyre::Result<()> {
                             )
                             .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
 
+                            use llm::{OutputRequest, Model};
+
                             // use the model to generate text from a prompt
                             let mut session = llama.start_session(Default::default());
 
                             let src: String = itertools::join(src.lines().filter(|xs| !xs.starts_with("[") && !xs.starts_with("#") && !xs.trim().is_empty()), "\n");
-
-                            let prompt = format!(indoc::indoc! {r#"### MAIN TEXT
-                            {}
-                            "#}, &src);
-
-                            let res = session.infer::<std::convert::Infallible>(
-                                // model to use for text generation
-                                &llama,
-                                // randomness provider
-                                &mut rand::thread_rng(),
-                                // the prompt to use for text generation, as well as other
-                                // inference parameters
-                                &llm::InferenceRequest {
-                                    prompt: prompt.as_str().into(),
-                                    parameters: &llm::InferenceParameters::default(),
-                                    play_back_previous_tokens: true,
-                                    maximum_token_count: None,
-                                },
-                                // llm::OutputRequest
-                                &mut Default::default(),
-                                // output callback
-                                |r| match r {
-                                    llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
-                                        print!("{t}");
-                                        std::io::stdout().flush().unwrap();
-                                        Ok(llm::InferenceFeedback::Continue)
-                                    }
-                                    _ => Ok(llm::InferenceFeedback::Continue),
+                            let src: String = src.replace(|c| {
+                                match c {
+                                    '*' => true,
+                                    '\u{fffd}' => true,
+                                    _ => false
                                 }
-                            );
+                            }, "");
 
-                            match res {
-                                Ok(result) => println!("\n\nInference stats:\n{result}"),
-                                Err(err) => println!("\naw heck {err}"),
-                            }
+                            let mut output = Vec::with_capacity(2048);
+                            let paras: Vec<_> = src.split("\n").into_iter().collect();
+                            for paras in &paras.into_iter().chunks(3) {
+                                let next_two_paras = itertools::join(paras.take(2), "\n");
 
-                            let res = session.infer::<std::convert::Infallible>(
-                                // model to use for text generation
-                                &llama,
-                                // randomness provider
-                                &mut rand::thread_rng(),
-                                // the prompt to use for text generation, as well as other
-                                // inference parameters
-                                &llm::InferenceRequest {
-                                    prompt: "### 200 WORD SUMMARY\n".into(),
-                                    parameters: &llm::InferenceParameters::default(),
-                                    play_back_previous_tokens: true,
-                                    maximum_token_count: None,
-                                },
-                                // llm::OutputRequest
-                                &mut Default::default(),
-                                // output callback
-                                |r| match r {
-                                    llm::InferenceResponse::PromptToken(t) | llm::InferenceResponse::InferredToken(t) => {
-                                        print!("{t}");
-                                        std::io::stdout().flush().unwrap();
-                                        Ok(llm::InferenceFeedback::Continue)
+                                let prompt = format!(indoc::indoc! {r#"### MAIN TEXT
+                                {}
+                                {}
+                                ### CONCISE 100 WORD SUMMARY
+                                "#}, itertools::join(output.iter(), ""), next_two_paras);
+                                output.clear();
+
+                                let res = session.infer::<std::convert::Infallible>(
+                                    // model to use for text generation
+                                    &llama,
+                                    // randomness provider
+                                    &mut rand::thread_rng(),
+                                    // the prompt to use for text generation, as well as other
+                                    // inference parameters
+                                    &llm::InferenceRequest {
+                                        prompt: prompt.as_str().into(),
+                                        parameters: &llm::InferenceParameters {
+                                            sampler: Arc::new(TopPTopK {
+                                                top_k: 40,
+                                                top_p: 0.95,
+                                                repeat_penalty: 1.30,
+                                                temperature: 0.50,
+                                                repetition_penalty_last_n: 512,
+                                                ..Default::default()
+                                            }),
+                                            ..Default::default()
+                                        },
+                                        play_back_previous_tokens: false,
+                                        maximum_token_count: None,
+                                    },
+                                    // llm::OutputRequest
+                                    &mut Default::default(),
+                                    // output callback
+                                    |r| match r {
+                                        llm::InferenceResponse::PromptToken(t) => {
+                                            print!("\x1b[31m{t}\x1b[0m");
+                                            std::io::stdout().flush().unwrap();
+                                            Ok(llm::InferenceFeedback::Continue)
+                                        }
+
+                                        llm::InferenceResponse::InferredToken(t) => {
+                                            print!("\x1b[34m{}\x1b[0m", t.as_str());
+                                            output.push(t);
+                                            std::io::stdout().flush().unwrap();
+                                            if output.len() > 128 {
+                                                Ok(llm::InferenceFeedback::Halt)
+                                            } else {
+                                                Ok(llm::InferenceFeedback::Continue)
+                                            }
+                                        }
+
+                                        _ => Ok(llm::InferenceFeedback::Continue),
                                     }
-                                    _ => Ok(llm::InferenceFeedback::Continue),
-                                }
-                            );
+                                );
 
-                            match res {
-                                Ok(result) => println!("\n\nInference stats:\n{result}"),
-                                Err(err) => println!("\naw heck {err}"),
+                                match res {
+                                    Ok(result) => println!("\n\nInference stats:\n{result}"),
+                                    Err(err) => println!("\naw heck {err}"),
+                                }
                             }
                         }
                     }
