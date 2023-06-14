@@ -1,6 +1,7 @@
 use futures::{future::join_all, StreamExt};
+
+#[cfg(feature = "llm")]
 use llm::{OutputRequest, ModelParameters};
-use serde::Deserialize;
 
 use std::path::PathBuf;
 
@@ -26,7 +27,10 @@ struct Args {
 enum ShowMode {
     Text,
     Source,
+
+    #[cfg(feature = "llm")]
     Summary,
+
     #[default]
     Metadata,
 }
@@ -108,6 +112,7 @@ async fn main() -> eyre::Result<()> {
                         println!("{}", link_headers);
                     }
 
+                    #[cfg(feature = "llm")]
                     ShowMode::Summary => {
                         if let Some(src) = link.extract_text() {
                             use std::io::Write;

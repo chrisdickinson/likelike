@@ -18,7 +18,7 @@ html5ever = "0.26.0"
 include_dir = "0.7.3"
 indoc = "2.0.1"
 itertools = "0.10.5"
-llm = { git = "https://github.com/rustformers/llm" , branch = "main" }
+llm = { git = "https://github.com/rustformers/llm" , branch = "main", optional = true }
 pdf-extract = { git = "https://github.com/joepio/pdf-extract", rev = "33767ee434fb2dc26de0c4de41def45efeb444f5", version = "0.7.0" }
 pin-project = "1.0.12"
 rand = "0.8.5"
