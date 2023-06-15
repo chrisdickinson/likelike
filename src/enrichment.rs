@@ -1,11 +1,9 @@
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use futures::{pin_mut, StreamExt};
-use html5ever::driver::{self, ParseOpts};
 
 use scraper::{Html, Selector};
+use std::collections::HashMap;
 use std::io::copy;
-use std::{collections::HashMap, str::from_utf8};
-use tendril::TendrilSink;
 
 use crate::domain::{Link, LinkSource};
 use crate::{FetchLinkMetadata, ReadLinkInformation};
@@ -229,7 +227,11 @@ where
                     acc
                 });
 
-            let content_length: Option<usize> = http_headers.get("content-length").and_then(|v| v.last()).into_iter().find_map(|xs| xs.parse().ok());
+            let content_length: Option<usize> = http_headers
+                .get("content-length")
+                .and_then(|v| v.last())
+                .into_iter()
+                .find_map(|xs| xs.parse().ok());
 
             link.http_headers = Some(http_headers);
             if link.is_html() || link.is_pdf() {

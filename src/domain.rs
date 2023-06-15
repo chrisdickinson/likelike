@@ -121,9 +121,7 @@ impl Link {
                 .and_then(|hdrs| hdrs.get("content-type"))
                 .and_then(|xs| xs.last())
                 .map(|xs| xs.as_str()),
-            Some(
-                "application/pdf"
-            )
+            Some("application/pdf")
         )
     }
 
@@ -219,21 +217,19 @@ impl Link {
     pub fn extract_text(&self) -> Option<String> {
         if let Some(src) = &self.src {
             if self.is_html() {
-                return Some(html2text::from_read(src.as_slice(), 80))
+                return Some(html2text::from_read(src.as_slice(), 80));
             } else if self.is_pdf() {
-
                 if let Ok(output) = std::thread::scope(|s| {
                     s.spawn(|| {
                         // pdf_extract LOVES to panic
-                        std::panic::set_hook(Box::new(|_| {
-                        }));
+                        std::panic::set_hook(Box::new(|_| {}));
 
-                        return pdf_extract::extract_text_from_mem(src).ok()
-                    }).join()
+                        pdf_extract::extract_text_from_mem(src).ok()
+                    })
+                    .join()
                 }) {
-                    return output
+                    return output;
                 }
-
             }
         }
 

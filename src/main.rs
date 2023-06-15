@@ -1,6 +1,6 @@
 use futures::{future::join_all, StreamExt};
-use std::path::{PathBuf, Path};
 use std::io::Write;
+use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use likelike::{
@@ -106,11 +106,13 @@ async fn main() -> eyre::Result<()> {
                         if let Some(src) = link.extract_text() {
                             println!("{}", src);
                         }
-                    },
+                    }
 
-                    ShowMode::Source => if let Some(src) = link.src() {
-                      std::io::stdout().write_all(src)?;
-                    },
+                    ShowMode::Source => {
+                        if let Some(src) = link.src() {
+                            std::io::stdout().write_all(src)?;
+                        }
+                    }
 
                     ShowMode::Metadata => {
                         // link filename found / read / fetched / processed size
@@ -124,73 +126,117 @@ async fn main() -> eyre::Result<()> {
                         //   - header: data
                         println!("{}", link.url());
                         if let Some(filename) = link.from_filename() {
-                          let homedir = dirs::home_dir().unwrap();
-                          println!("- from: {}", filename.replace(homedir.as_path().to_str().unwrap(), "~"));
+                            let homedir = dirs::home_dir().unwrap();
+                            println!(
+                                "- from: {}",
+                                filename.replace(homedir.as_path().to_str().unwrap(), "~")
+                            );
                         }
 
-                        let found_at = link.found_at().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
-                        let read_at = link.read_at().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
-                        let fetched = link.last_fetched().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
-                        let processed = link.last_processed().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
+                        let found_at = link.found_at().map(|t| {
+                            t.with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %l:%M%P")
+                                .to_string()
+                                .replace("  ", " ")
+                        });
+                        let read_at = link.read_at().map(|t| {
+                            t.with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %l:%M%P")
+                                .to_string()
+                                .replace("  ", " ")
+                        });
+                        let fetched = link.last_fetched().map(|t| {
+                            t.with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %l:%M%P")
+                                .to_string()
+                                .replace("  ", " ")
+                        });
+                        let processed = link.last_processed().map(|t| {
+                            t.with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %l:%M%P")
+                                .to_string()
+                                .replace("  ", " ")
+                        });
 
-                        let times: std::collections::BTreeSet<_> = itertools::chain!(found_at.as_deref(), read_at.as_deref(), fetched.as_deref(), processed.as_deref()).collect();
+                        let times: std::collections::BTreeSet<_> = itertools::chain!(
+                            found_at.as_deref(),
+                            read_at.as_deref(),
+                            fetched.as_deref(),
+                            processed.as_deref()
+                        )
+                        .collect();
                         let mut actions = Vec::with_capacity(4);
                         for time in times {
-                          actions.clear();
-                          if found_at.as_deref() == Some(time) {
-                            actions.push("found");
-                          }
-                          if read_at.as_deref() == Some(time) {
-                            actions.push("read");
-                          }
-                          if fetched.as_deref() == Some(time) {
-                            actions.push("fetched");
-                          }
-                          if processed.as_deref() == Some(time) {
-                            actions.push("processed");
-                          }
+                            actions.clear();
+                            if found_at.as_deref() == Some(time) {
+                                actions.push("found");
+                            }
+                            if read_at.as_deref() == Some(time) {
+                                actions.push("read");
+                            }
+                            if fetched.as_deref() == Some(time) {
+                                actions.push("fetched");
+                            }
+                            if processed.as_deref() == Some(time) {
+                                actions.push("processed");
+                            }
 
-                          println!("- {}: {}", itertools::join(&actions, ";"), time);
+                            println!("- {}: {}", itertools::join(&actions, ";"), time);
                         }
 
                         if let Some(via) = link.via() {
-                          println!("- via: {}", match via {
-                              likelike::Via::Friend(xs) => format!("friend, {}", xs),
-                              likelike::Via::Link(xs) => format!("link, {}", xs),
-                              likelike::Via::Freeform(xs) => format!("text, {}", xs),
-                          });
+                            println!(
+                                "- via: {}",
+                                match via {
+                                    likelike::Via::Friend(xs) => format!("friend, {}", xs),
+                                    likelike::Via::Link(xs) => format!("link, {}", xs),
+                                    likelike::Via::Freeform(xs) => format!("text, {}", xs),
+                                }
+                            );
                         }
 
-                        for (name, map) in itertools::chain(link.meta().map(|x| ("meta", x)), link.http_headers().map(|x| ("headers", x))) {
-                          if map.is_empty() {
-                            continue
-                          }
+                        for (name, map) in itertools::chain(
+                            link.meta().map(|x| ("meta", x)),
+                            link.http_headers().map(|x| ("headers", x)),
+                        ) {
+                            if map.is_empty() {
+                                continue;
+                            }
 
-                          println!("- {}:", name);
-                          let map: std::collections::BTreeMap<_, _> = map.iter().collect();
-                          for (key, value) in map {
-                            let value = itertools::join(value, ", ");
-                            println!("  - {}: {}", if key.contains(':') {
-                              format!("\"{}\"", key)
-                            } else {
-                              key.to_string()
-                            }, if value.contains('\n') {
-                              format!("|\n    {}", itertools::join(value.split('\n'), "\n    "))
-                            } else {
-                              value
-                            });
-                          }
+                            println!("- {}:", name);
+                            let map: std::collections::BTreeMap<_, _> = map.iter().collect();
+                            for (key, value) in map {
+                                let value = itertools::join(value, ", ");
+                                println!(
+                                    "  - {}: {}",
+                                    if key.contains(':') {
+                                        format!("\"{}\"", key)
+                                    } else {
+                                        key.to_string()
+                                    },
+                                    if value.contains('\n') {
+                                        format!(
+                                            "|\n    {}",
+                                            itertools::join(value.split('\n'), "\n    ")
+                                        )
+                                    } else {
+                                        value
+                                    }
+                                );
+                            }
                         }
                     }
 
                     #[cfg(feature = "llm")]
                     ShowMode::Summary => {
                         use itertools::Itertools;
-                        use llm::{Model, samplers::TopPTopK, ModelParameters};
+                        use llm::{samplers::TopPTopK, Model, ModelParameters};
                         use std::sync::Arc;
 
                         if let Some(src) = link.extract_text() {
-                            let ggml = std::env::var("LIKELIKE_GGML").ok().unwrap_or_else(|| "ggml-vicuna-13B-1.1-q5_1.bin".to_string());
+                            let ggml = std::env::var("LIKELIKE_GGML")
+                                .ok()
+                                .unwrap_or_else(|| "ggml-vicuna-13B-1.1-q5_1.bin".to_string());
                             // load a GGML model from disk
                             let llama = llm::load::<llm::models::Llama>(
                                 // path to GGML file
@@ -203,28 +249,42 @@ async fn main() -> eyre::Result<()> {
                                 },
                                 // load progress callback
                                 // llm::load_progress_callback_stdout
-                                |_| {}
+                                |_| {},
                             )
                             .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
 
                             // use the model to generate text from a prompt
                             let mut session = llama.start_session(Default::default());
 
-                            let src: String = itertools::join(src.lines().filter(|xs| !xs.starts_with('[') && !xs.starts_with('#') && !xs.trim().is_empty()), "\n");
-                            let src: String = src.replace(|c| {
-                              matches!(c, '*' | '\u{fffd}')
-                            }, "");
+                            let src: String = itertools::join(
+                                src.lines().filter(|xs| {
+                                    !xs.starts_with('[')
+                                        && !xs.starts_with('#')
+                                        && !xs.trim().is_empty()
+                                }),
+                                "\n",
+                            );
+                            let src: String = src.replace(|c| matches!(c, '*' | '\u{fffd}'), "");
 
                             let mut output = Vec::with_capacity(2048);
                             let paras: Vec<_> = src.split('\n').collect();
-                            for paras in &paras.into_iter().chunks(3) {
-                                let next_paras = itertools::join(paras.take(3), "\n");
+                            for paras in &paras.into_iter().chunks(4) {
+                                let next_paras = itertools::join(paras, "\n");
 
-                                let prompt = format!(indoc::indoc! {r#"### MAIN TEXT
+                                let prompt = format!(
+                                    indoc::indoc! {r#"Below is an instruction that describes a task. Write a response that appropriately completes the request.
+
+                                ### Instruction:
+
+                                Write a concise, 100 word summary of the following markdown text.
+
+                                #### Text:
                                 {}
 
-                                ### CONCISE 100 WORD SUMMARY
-                                "#}, next_paras);
+                                ### Response:
+                                "#},
+                                    next_paras
+                                );
                                 output.clear();
 
                                 let res = session.infer::<std::convert::Infallible>(
@@ -272,7 +332,7 @@ async fn main() -> eyre::Result<()> {
                                         }
 
                                         _ => Ok(llm::InferenceFeedback::Continue),
-                                    }
+                                    },
                                 );
 
                                 match res {
