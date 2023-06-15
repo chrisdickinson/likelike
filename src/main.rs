@@ -1,15 +1,6 @@
 use futures::{future::join_all, StreamExt};
-
-#[cfg(feature = "llm")]
-use itertools::Itertools;
-
-#[cfg(feature = "llm")]
-use llm::{samplers::TopPTopK, OutputRequest, ModelParameters};
-
-#[cfg(feature = "llm")]
-use std::sync::Arc;
-
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
+use std::io::Write;
 
 use clap::{Parser, ValueEnum};
 use likelike::{
@@ -39,6 +30,18 @@ enum ShowMode {
 
     #[default]
     Metadata,
+}
+
+impl std::fmt::Display for ShowMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShowMode::Text => f.write_str("text"),
+            ShowMode::Source => f.write_str("source"),
+            ShowMode::Metadata => f.write_str("metadata"),
+            #[cfg(feature = "llm")]
+            ShowMode::Summary => f.write_str("summary"),
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -78,7 +81,7 @@ enum Commands {
         url: String,
 
         /// Only show metadata information: meta tags & http headers
-        #[arg(short, long)]
+        #[arg(short, long, default_value_t=ShowMode::Metadata)]
         mode: ShowMode,
     },
 }
@@ -106,23 +109,87 @@ async fn main() -> eyre::Result<()> {
                     },
 
                     ShowMode::Source => if let Some(src) = link.src() {
-                        println!("{}", String::from_utf8_lossy(src));
+                      std::io::stdout().write_all(src)?;
                     },
 
                     ShowMode::Metadata => {
-                        let link_meta = serde_json::to_string_pretty(&link.meta()).unwrap_or_default();
-                        let link_headers =
-                            serde_json::to_string_pretty(&link.http_headers()).unwrap_or_default();
+                        // link filename found / read / fetched / processed size
+                        // - via: <via>
+                        // - tags: [alpha,beta,gamma]
+                        // - meta:
+                        //   - prop: value
+                        // - headers:
+                        //   - header: data
+                        //   - header: data
+                        //   - header: data
                         println!("{}", link.url());
-                        println!("{}", link_meta);
-                        println!("{}", link_headers);
+                        if let Some(filename) = link.from_filename() {
+                          let homedir = dirs::home_dir().unwrap();
+                          println!("- from: {}", filename.replace(homedir.as_path().to_str().unwrap(), "~"));
+                        }
+
+                        let found_at = link.found_at().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
+                        let read_at = link.read_at().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
+                        let fetched = link.last_fetched().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
+                        let processed = link.last_processed().map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %l:%M%P").to_string().replace("  ", " "));
+
+                        let times: std::collections::BTreeSet<_> = itertools::chain!(found_at.as_deref(), read_at.as_deref(), fetched.as_deref(), processed.as_deref()).collect();
+                        let mut actions = Vec::with_capacity(4);
+                        for time in times {
+                          actions.clear();
+                          if found_at.as_deref() == Some(time) {
+                            actions.push("found");
+                          }
+                          if read_at.as_deref() == Some(time) {
+                            actions.push("read");
+                          }
+                          if fetched.as_deref() == Some(time) {
+                            actions.push("fetched");
+                          }
+                          if processed.as_deref() == Some(time) {
+                            actions.push("processed");
+                          }
+
+                          println!("- {}: {}", itertools::join(&actions, ";"), time);
+                        }
+
+                        if let Some(via) = link.via() {
+                          println!("- via: {}", match via {
+                              likelike::Via::Friend(xs) => format!("friend, {}", xs),
+                              likelike::Via::Link(xs) => format!("link, {}", xs),
+                              likelike::Via::Freeform(xs) => format!("text, {}", xs),
+                          });
+                        }
+
+                        for (name, map) in itertools::chain(link.meta().map(|x| ("meta", x)), link.http_headers().map(|x| ("headers", x))) {
+                          if map.is_empty() {
+                            continue
+                          }
+
+                          println!("- {}:", name);
+                          let map: std::collections::BTreeMap<_, _> = map.iter().collect();
+                          for (key, value) in map {
+                            let value = itertools::join(value, ", ");
+                            println!("  - {}: {}", if key.contains(':') {
+                              format!("\"{}\"", key)
+                            } else {
+                              key.to_string()
+                            }, if value.contains('\n') {
+                              format!("|\n    {}", itertools::join(value.split('\n'), "\n    "))
+                            } else {
+                              value
+                            });
+                          }
+                        }
                     }
 
                     #[cfg(feature = "llm")]
                     ShowMode::Summary => {
-                        if let Some(src) = link.extract_text() {
-                            use std::io::Write;
+                        use itertools::Itertools;
+                        use llm::{Model, samplers::TopPTopK, ModelParameters};
+                        use std::sync::Arc;
 
+                        if let Some(src) = link.extract_text() {
                             let ggml = std::env::var("LIKELIKE_GGML").ok().unwrap_or_else(|| "ggml-vicuna-13B-1.1-q5_1.bin".to_string());
                             // load a GGML model from disk
                             let llama = llm::load::<llm::models::Llama>(
@@ -140,30 +207,24 @@ async fn main() -> eyre::Result<()> {
                             )
                             .unwrap_or_else(|err| panic!("Failed to load model: {err}"));
 
-                            use llm::{OutputRequest, Model};
-
                             // use the model to generate text from a prompt
                             let mut session = llama.start_session(Default::default());
 
-                            let src: String = itertools::join(src.lines().filter(|xs| !xs.starts_with("[") && !xs.starts_with("#") && !xs.trim().is_empty()), "\n");
+                            let src: String = itertools::join(src.lines().filter(|xs| !xs.starts_with('[') && !xs.starts_with('#') && !xs.trim().is_empty()), "\n");
                             let src: String = src.replace(|c| {
-                                match c {
-                                    '*' => true,
-                                    '\u{fffd}' => true,
-                                    _ => false
-                                }
+                              matches!(c, '*' | '\u{fffd}')
                             }, "");
 
                             let mut output = Vec::with_capacity(2048);
-                            let paras: Vec<_> = src.split("\n").into_iter().collect();
+                            let paras: Vec<_> = src.split('\n').collect();
                             for paras in &paras.into_iter().chunks(3) {
-                                let next_two_paras = itertools::join(paras.take(2), "\n");
+                                let next_paras = itertools::join(paras.take(3), "\n");
 
                                 let prompt = format!(indoc::indoc! {r#"### MAIN TEXT
                                 {}
-                                {}
+
                                 ### CONCISE 100 WORD SUMMARY
-                                "#}, itertools::join(output.iter(), ""), next_two_paras);
+                                "#}, next_paras);
                                 output.clear();
 
                                 let res = session.infer::<std::convert::Infallible>(
@@ -186,7 +247,7 @@ async fn main() -> eyre::Result<()> {
                                             }),
                                             ..Default::default()
                                         },
-                                        play_back_previous_tokens: false,
+                                        play_back_previous_tokens: true,
                                         maximum_token_count: None,
                                     },
                                     // llm::OutputRequest

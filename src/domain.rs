@@ -219,7 +219,7 @@ impl Link {
     pub fn extract_text(&self) -> Option<String> {
         if let Some(src) = &self.src {
             if self.is_html() {
-                return Some(html2text::from_read(src.as_slice(), 4000))
+                return Some(html2text::from_read(src.as_slice(), 80))
             } else if self.is_pdf() {
 
                 if let Ok(output) = std::thread::scope(|s| {
