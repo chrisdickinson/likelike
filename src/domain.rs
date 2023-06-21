@@ -236,8 +236,16 @@ impl Link {
         self.last_fetched
     }
 
+    pub fn last_fetched_mut(&mut self) -> &mut Option<DateTime<Utc>> {
+        &mut self.last_fetched
+    }
+
     pub fn last_processed(&self) -> Option<DateTime<Utc>> {
         self.last_processed
+    }
+
+    pub fn last_processed_mut(&mut self) -> &mut Option<DateTime<Utc>> {
+        &mut self.last_processed
     }
 
     pub fn http_headers(&self) -> Option<&HashMap<String, Vec<String>>> {

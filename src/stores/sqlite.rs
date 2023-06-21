@@ -95,7 +95,7 @@ impl LinkWriter for SqliteStore {
         let meta = link
             .meta
             .iter()
-            .filter_map(|src| serde_json::to_vec(src).ok())
+            .filter_map(|src| serde_json::to_string(src).ok())
             .next();
 
         let http_headers = link

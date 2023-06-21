@@ -5,7 +5,7 @@ use std::{collections::BTreeSet, io::Write};
 use clap::{Parser, ValueEnum};
 use likelike::{
     process_input, ExternalWrap, Frontmatter, HtmlProcessorWrap, HttpClientWrap, LinkReader,
-    LinkSource, LinkWriter, SqliteStore,
+    LinkSource, LinkWriter, SqliteStore, PdfProcessorWrap,
 };
 
 /// Process markdown-formatted linkdump files and store them in a sqlite database.
@@ -82,6 +82,8 @@ enum Commands {
 
     Rebuild,
 
+    Refetch,
+
     /// Export links from the database as zola markdown documents with Link metadata included in
     /// frontmatter.
     Export {
@@ -127,8 +129,8 @@ async fn main() -> eyre::Result<()> {
             }
         }
 
-        Commands::Rebuild => {
-            let store = HtmlProcessorWrap::wrap(ExternalWrap::wrap(store));
+        Commands::Refetch => {
+            let store = HttpClientWrap::wrap(HtmlProcessorWrap::wrap(PdfProcessorWrap::wrap(ExternalWrap::wrap(store))));
             let mut links = store.values().await?;
 
             let mut v = Vec::new();
@@ -136,7 +138,35 @@ async fn main() -> eyre::Result<()> {
                 v.push(link);
             }
 
-            for link in v {
+            for mut link in v {
+                print!("{}...", link.url());
+                if link.src().is_none() {
+                    link.last_fetched_mut().take();
+                    link.last_processed_mut().take();
+
+                    if let Err(_) = store.write(link).await {
+                        println!("\x1b[31m error!\x1b[0m");
+                    } else {
+                        println!("\x1b[32m done!\x1b[0m");
+                    }
+                } else {
+                    println!("\x1b[33m skip!\x1b[0m");
+                }
+
+            }
+        }
+
+        Commands::Rebuild => {
+            let store = HtmlProcessorWrap::wrap(PdfProcessorWrap::wrap(ExternalWrap::wrap(store)));
+            let mut links = store.values().await?;
+
+            let mut v = Vec::new();
+            while let Some(link) = links.next().await {
+                v.push(link);
+            }
+
+            for mut link in v {
+                link.last_processed_mut().take();
                 print!("{}...", link.url());
                 store.write(link).await?;
                 println!("\x1b[32mdone!\x1b[0m");
@@ -147,12 +177,13 @@ async fn main() -> eyre::Result<()> {
             let store = ExternalWrap::wrap(store);
             let store = &store;
             let mut links = store.glob(url.as_str()).await?;
-            let tag = tag.unwrap_or_else(|| "*".to_string());
-            let tag = wildmatch::WildMatch::new(&tag);
+            let filter = tag.map(|t| wildmatch::WildMatch::new(&t));
 
             while let Some(link) = links.next().await {
-                if !link.tags().iter().any(|t| tag.matches(t)) {
-                    continue;
+                if let Some(ref filter) = filter {
+                    if !link.tags().iter().any(|t| filter.matches(t)) {
+                        continue
+                    }
                 }
 
                 match mode {

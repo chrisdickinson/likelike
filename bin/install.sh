@@ -40,7 +40,7 @@ cat > ~/Library/LaunchAgents/us.neversaw.likelike.plist <<EOF
     <string>${notes_dir}</string>
     <string>-p</string>
     <string>--</string>
-    <string><![CDATA[${likelike_path} import ${notes_dir} && cp "$HOME/Library/Application Support/likelike.sqlite3" "$HOME/blog/"]]></string>
+    <string><![CDATA[${likelike_path} import ${notes_dir} && cp "$HOME/Library/Application Support/likelike/db.sqlite3" "$HOME/blog/"]]></string>
   </array>
 
 	<key>RunAtLoad</key>

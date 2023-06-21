@@ -31,8 +31,8 @@ where
 impl<T: LinkWriter + Send + Sync> LinkWriter for PdfProcessorWrap<T> {
     async fn write(&self, mut link: Link) -> eyre::Result<bool> {
         if link.last_processed().is_none() {
-            link.last_processed = Some(Utc::now());
             if link.src().is_some() && link.is_pdf() {
+                link.last_processed = Some(Utc::now());
                 link.extracted_text = std::thread::scope(|s| {
                     s.spawn(|| {
                         // pdf_extract LOVES to panic

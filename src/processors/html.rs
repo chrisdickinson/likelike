@@ -4,6 +4,9 @@ use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 
+// Arbitrarily chosen to be longer than necessary.
+const DEFAULT_LINEWRAP_AT: usize = 4000;
+
 /// An external store is used for data associated with the link
 /// that we are unlikely to use when exporting static site data, especially
 /// when that data is large or requires computation. This includes the original source data and text
@@ -35,11 +38,11 @@ impl<T: LinkWriter + Send + Sync> LinkWriter for HtmlProcessorWrap<T> {
     async fn write(&self, mut link: Link) -> eyre::Result<bool> {
         // TODO: this is where encodings _would_ go. See encoding_rs, windows-1252 for latin1
         if link.last_processed().is_none() {
-            link.last_processed = Some(Utc::now());
             if link.src().is_some() && link.is_html() {
+                link.last_processed = Some(Utc::now());
                 link = process_html(link)?;
                 link.extracted_text =
-                    Some(html2text::from_read(link.src().unwrap_or(b""), usize::MAX));
+                    Some(html2text::from_read(link.src().unwrap_or(b""), DEFAULT_LINEWRAP_AT));
             }
         }
         self.inner.write(link).await
