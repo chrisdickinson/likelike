@@ -5,7 +5,7 @@ use std::{collections::BTreeSet, io::Write};
 use clap::{Parser, ValueEnum};
 use likelike::{
     process_input, ExternalWrap, Frontmatter, HtmlProcessorWrap, HttpClientWrap, LinkReader,
-    LinkSource, LinkWriter, SqliteStore, PdfProcessorWrap,
+    LinkSource, LinkWriter, PdfProcessorWrap, SqliteStore,
 };
 
 /// Process markdown-formatted linkdump files and store them in a sqlite database.
@@ -130,7 +130,9 @@ async fn main() -> eyre::Result<()> {
         }
 
         Commands::Refetch => {
-            let store = HttpClientWrap::wrap(HtmlProcessorWrap::wrap(PdfProcessorWrap::wrap(ExternalWrap::wrap(store))));
+            let store = HttpClientWrap::wrap(HtmlProcessorWrap::wrap(PdfProcessorWrap::wrap(
+                ExternalWrap::wrap(store),
+            )));
             let mut links = store.values().await?;
 
             let mut v = Vec::new();
@@ -152,7 +154,6 @@ async fn main() -> eyre::Result<()> {
                 } else {
                     println!("\x1b[33m skip!\x1b[0m");
                 }
-
             }
         }
 
@@ -182,7 +183,7 @@ async fn main() -> eyre::Result<()> {
             while let Some(link) = links.next().await {
                 if let Some(ref filter) = filter {
                     if !link.tags().iter().any(|t| filter.matches(t)) {
-                        continue
+                        continue;
                     }
                 }
 

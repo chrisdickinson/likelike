@@ -37,13 +37,13 @@ where
 impl<T: LinkWriter + Send + Sync> LinkWriter for HtmlProcessorWrap<T> {
     async fn write(&self, mut link: Link) -> eyre::Result<bool> {
         // TODO: this is where encodings _would_ go. See encoding_rs, windows-1252 for latin1
-        if link.last_processed().is_none() {
-            if link.src().is_some() && link.is_html() {
-                link.last_processed = Some(Utc::now());
-                link = process_html(link)?;
-                link.extracted_text =
-                    Some(html2text::from_read(link.src().unwrap_or(b""), DEFAULT_LINEWRAP_AT));
-            }
+        if link.last_processed().is_none() && link.src().is_some() && link.is_html() {
+            link.last_processed = Some(Utc::now());
+            link = process_html(link)?;
+            link.extracted_text = Some(html2text::from_read(
+                link.src().unwrap_or(b""),
+                DEFAULT_LINEWRAP_AT,
+            ));
         }
         self.inner.write(link).await
     }

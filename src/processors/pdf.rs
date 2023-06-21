@@ -30,21 +30,19 @@ where
 #[async_trait::async_trait]
 impl<T: LinkWriter + Send + Sync> LinkWriter for PdfProcessorWrap<T> {
     async fn write(&self, mut link: Link) -> eyre::Result<bool> {
-        if link.last_processed().is_none() {
-            if link.src().is_some() && link.is_pdf() {
-                link.last_processed = Some(Utc::now());
-                link.extracted_text = std::thread::scope(|s| {
-                    s.spawn(|| {
-                        // pdf_extract LOVES to panic
-                        std::panic::set_hook(Box::new(|_| {}));
+        if link.last_processed().is_none() && link.src().is_some() && link.is_pdf() {
+            link.last_processed = Some(Utc::now());
+            link.extracted_text = std::thread::scope(|s| {
+                s.spawn(|| {
+                    // pdf_extract LOVES to panic
+                    std::panic::set_hook(Box::new(|_| {}));
 
-                        pdf_extract::extract_text_from_mem(link.src().unwrap_or(b"")).ok()
-                    })
-                    .join()
+                    pdf_extract::extract_text_from_mem(link.src().unwrap_or(b"")).ok()
                 })
-                .ok()
-                .flatten();
-            }
+                .join()
+            })
+            .ok()
+            .flatten();
         }
         self.inner.write(link).await
     }
