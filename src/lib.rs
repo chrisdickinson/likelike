@@ -7,65 +7,25 @@ use comrak::{
     nodes::{Ast, NodeLink, NodeValue},
     parse_document, Arena, ComrakOptions,
 };
-use futures::Stream;
-
-use reqwest::header::HeaderMap;
 
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    pin::Pin,
 };
 
 mod domain;
 mod enrichment;
+mod processors;
 mod stores;
 
 pub use crate::domain::*;
+pub use crate::processors::*;
 pub use crate::stores::*;
-
-/// Read link information from the link store.
-#[async_trait::async_trait]
-pub trait ReadLinkInformation {
-    async fn get(&self, link: &str) -> eyre::Result<Option<Link>>;
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>>;
-    async fn glob<'a, 'b: 'a>(
-        &'a self,
-        pattern: &'b str,
-    ) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
-        let m = wildmatch::WildMatch::new(pattern);
-        let values = self.values().await?;
-
-        Ok(Box::pin(async_stream::stream! {
-            futures::pin_mut!(values);
-            for await link in values {
-                if m.matches(link.url.as_str()) {
-                    let Ok(Some(link)) = self.get(link.url.as_str()).await else { continue };
-                    yield link;
-                }
-            }
-        }))
-    }
-}
-
-/// Write link information back to the link store.
-#[async_trait::async_trait]
-pub trait WriteLinkInformation {
-    async fn write(&self, link: &Link) -> eyre::Result<bool>;
-}
-
-#[async_trait::async_trait]
-pub trait FetchLinkMetadata {
-    type Headers: TryInto<HeaderMap>;
-    type Body: Stream<Item = bytes::Bytes>;
-
-    async fn fetch(&self, link: &Link) -> eyre::Result<Option<(Self::Headers, Self::Body)>>;
-}
 
 pub async fn process_input<'a, S, Store>(input: S, store: &Store) -> eyre::Result<()>
 where
     S: Into<LinkSource<'a>> + Send + Sync,
-    Store: FetchLinkMetadata + ReadLinkInformation + WriteLinkInformation + Send + Sync,
+    Store: LinkReader + LinkWriter + Send + Sync,
 {
     let arena = Arena::new();
     let opts = ComrakOptions::default();
@@ -117,8 +77,8 @@ where
 
     for link in links.into_values() {
         let link = enrichment::enrich_link(link, store, &link_source).await?;
-        if let Err(e) = store.write(&link).await {
-            eprintln!("error fetching {}: {:?}", link.url, e);
+        if let Err(e) = store.write(link).await {
+            eprintln!("error: {:?}", e);
         }
     }
 
@@ -317,7 +277,7 @@ fn fmt_cmark<'a>(node: &'a Node<'a, RefCell<Ast>>) -> eyre::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::ReadLinkInformation;
+    use super::LinkReader;
     use super::*;
     use futures::StreamExt;
     use sqlx::pool::PoolOptions;

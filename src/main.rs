@@ -1,10 +1,11 @@
 use futures::{future::join_all, StreamExt};
-use std::io::Write;
 use std::path::PathBuf;
+use std::{collections::BTreeSet, io::Write};
 
 use clap::{Parser, ValueEnum};
 use likelike::{
-    process_input, Frontmatter, HttpClientWrap, LinkSource, ReadLinkInformation, SqliteStore,
+    process_input, ExternalWrap, Frontmatter, HtmlProcessorWrap, HttpClientWrap, LinkReader,
+    LinkSource, LinkWriter, SqliteStore,
 };
 
 /// Process markdown-formatted linkdump files and store them in a sqlite database.
@@ -22,22 +23,28 @@ struct Args {
 
 #[derive(Default, Clone, Copy, Debug, ValueEnum)]
 enum ShowMode {
+    #[default]
+    List,
     Text,
-    Source,
+    Raw,
+
+    Attributions,
 
     #[cfg(feature = "llm")]
     Summary,
 
-    #[default]
     Metadata,
 }
 
 impl std::fmt::Display for ShowMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ShowMode::List => f.write_str("list"),
             ShowMode::Text => f.write_str("text"),
-            ShowMode::Source => f.write_str("source"),
+            ShowMode::Raw => f.write_str("raw"),
             ShowMode::Metadata => f.write_str("metadata"),
+            ShowMode::Attributions => f.write_str("attributions"),
+
             #[cfg(feature = "llm")]
             ShowMode::Summary => f.write_str("summary"),
         }
@@ -71,18 +78,28 @@ enum Commands {
         display_links: bool,
     },
 
+    Tags,
+
+    Rebuild,
+
     /// Export links from the database as zola markdown documents with Link metadata included in
     /// frontmatter.
-    Export { output: PathBuf },
+    Export {
+        output: PathBuf,
+    },
 
     /// Show information about a given link. Accepts globstar patterns (be sure to single-quote
     /// them!)
     Show {
+        #[arg(default_value_t=String::from("*"))]
         url: String,
 
         /// Only show metadata information: meta tags & http headers
-        #[arg(short, long, default_value_t=ShowMode::Metadata)]
+        #[arg(short, long, default_value_t=ShowMode::List)]
         mode: ShowMode,
+
+        #[arg(short, long)]
+        tag: Option<String>,
     },
 }
 
@@ -97,21 +114,66 @@ async fn main() -> eyre::Result<()> {
     };
 
     match cli.command {
-        Commands::Show { url, mode } => {
-            let mut links = store.glob(url.as_str()).await?;
+        Commands::Tags => {
+            let mut links = store.values().await?;
+            let mut tags = BTreeSet::new();
 
             while let Some(link) = links.next().await {
+                tags.extend(link.tags().iter().cloned());
+            }
+
+            for tag in tags {
+                println!("{}", tag);
+            }
+        }
+
+        Commands::Rebuild => {
+            let store = HtmlProcessorWrap::wrap(ExternalWrap::wrap(store));
+            let mut links = store.values().await?;
+
+            let mut v = Vec::new();
+            while let Some(link) = links.next().await {
+                v.push(link);
+            }
+
+            for link in v {
+                print!("{}...", link.url());
+                store.write(link).await?;
+                println!("\x1b[32mdone!\x1b[0m");
+            }
+        }
+
+        Commands::Show { url, mode, tag } => {
+            let store = ExternalWrap::wrap(store);
+            let store = &store;
+            let mut links = store.glob(url.as_str()).await?;
+            let tag = tag.unwrap_or_else(|| "*".to_string());
+            let tag = wildmatch::WildMatch::new(&tag);
+
+            while let Some(link) = links.next().await {
+                if !link.tags().iter().any(|t| tag.matches(t)) {
+                    continue;
+                }
+
                 match mode {
+                    ShowMode::Attributions => {
+                        println!("[{}]: {}", link.slug(), link.url());
+                    }
+
                     ShowMode::Text => {
                         if let Some(src) = link.extract_text() {
                             println!("{}", src);
                         }
                     }
 
-                    ShowMode::Source => {
+                    ShowMode::Raw => {
                         if let Some(src) = link.src() {
                             std::io::stdout().write_all(src)?;
                         }
+                    }
+
+                    ShowMode::List => {
+                        println!("{}", link.url());
                     }
 
                     ShowMode::Metadata => {
@@ -372,7 +434,7 @@ async fn main() -> eyre::Result<()> {
             files,
             display_links,
         } => {
-            let store = HttpClientWrap::wrap(store);
+            let store = HttpClientWrap::wrap(HtmlProcessorWrap::wrap(ExternalWrap::wrap(store)));
             let store = &store;
 
             let mut resolved_files = Vec::new();

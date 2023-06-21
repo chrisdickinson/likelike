@@ -97,6 +97,7 @@ pub struct Link {
 
     pub(crate) meta: Option<HashMap<String, Vec<String>>>,
     pub(crate) src: Option<Vec<u8>>,
+    pub(crate) extracted_text: Option<String>,
 
     pub(crate) last_fetched: Option<DateTime<Utc>>,
 
@@ -112,6 +113,19 @@ impl Link {
             url: url.as_ref().to_string(),
             ..Default::default()
         }
+    }
+
+    pub fn slug(&self) -> String {
+        let title = self
+            .meta()
+            .and_then(|m| m.get("og:title"))
+            .or_else(|| self.meta().and_then(|m| m.get("twitter:title")))
+            .and_then(|v| v.get(0))
+            .map(|s| s.as_str())
+            .or_else(|| self.title())
+            .unwrap_or_else(|| self.url());
+
+        slug::slugify(title)
     }
 
     pub fn is_pdf(&self) -> bool {
@@ -214,26 +228,8 @@ impl Link {
         self.src.as_deref()
     }
 
-    pub fn extract_text(&self) -> Option<String> {
-        if let Some(src) = &self.src {
-            if self.is_html() {
-                return Some(html2text::from_read(src.as_slice(), 80));
-            } else if self.is_pdf() {
-                if let Ok(output) = std::thread::scope(|s| {
-                    s.spawn(|| {
-                        // pdf_extract LOVES to panic
-                        std::panic::set_hook(Box::new(|_| {}));
-
-                        pdf_extract::extract_text_from_mem(src).ok()
-                    })
-                    .join()
-                }) {
-                    return output;
-                }
-            }
-        }
-
-        None
+    pub fn extract_text(&self) -> Option<&str> {
+        self.extracted_text.as_deref()
     }
 
     pub fn last_fetched(&self) -> Option<DateTime<Utc>> {
