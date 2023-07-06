@@ -120,6 +120,8 @@ pub(crate) async fn fetch_link(mut link: Link, client: &Client) -> eyre::Result<
 
     if link.is_html() || link.is_pdf() {
         link.src = response.bytes().await.ok().map(|xs| xs.to_vec());
+    } else {
+        eprintln!("skipping link: {} {:?}", link.url(), link.http_headers().and_then(|hdrs| hdrs.get("content-type")).and_then(|xs| xs.last()).map(|xs| xs.as_str()));
     }
 
     Ok(link)

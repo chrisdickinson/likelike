@@ -4,8 +4,7 @@ use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 
-// Arbitrarily chosen to be longer than necessary.
-const DEFAULT_LINEWRAP_AT: usize = 4000;
+const DEFAULT_LINEWRAP_AT: usize = 80;
 
 /// An external store is used for data associated with the link
 /// that we are unlikely to use when exporting static site data, especially
