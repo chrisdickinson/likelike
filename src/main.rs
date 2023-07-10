@@ -1,5 +1,10 @@
+use chrono::Utc;
+use command_fds::{CommandFdExt, FdMapping};
 use futures::{future::join_all, StreamExt};
+use std::io::{Seek, Read};
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
+use std::process::Command;
 use std::{collections::BTreeSet, io::Write};
 
 use clap::{Parser, ValueEnum};
@@ -78,6 +83,10 @@ enum Commands {
         display_links: bool,
     },
 
+    Edit {
+        url: String
+    },
+
     Tags,
 
     Rebuild,
@@ -127,6 +136,55 @@ async fn main() -> eyre::Result<()> {
             for tag in tags {
                 println!("{}", tag);
             }
+        }
+
+        Commands::Edit { url } => {
+            // create a tempfile
+            // fill it with everything we know about the link, save it
+            // open
+            //      nvim '+vsplit' '+term likelike show https://xeiaso.net/blog/carcinization-golang -m text' justfile
+            // if the file change
+            //
+            let mut links = store.glob(url.as_str()).await?;
+            let mut v = Vec::new();
+            while let Some(link) = links.next().await {
+                eprintln!("uhhhh");
+                v.push(link);
+            }
+
+            if v.is_empty() {
+                // TODO: add the link then refetch
+            }
+
+            let dir = tempfile::tempdir()?;
+            for mut link in v {
+
+                let p = dir.path().join("file.md");
+
+                let Ok(frontmatter): Result<Frontmatter, _> = link.clone().try_into() else { continue };
+                let content = format!(
+                    "+++\n{}\n+++\n{}",
+                    toml::to_string_pretty(&frontmatter)?,
+                    frontmatter.notes()
+                );
+                {
+                    let mut temp = std::fs::File::create(p.as_path())?;
+                    temp.write_all(content.as_bytes())?;
+                }
+
+                let text_cmd = format!("+term likelike show '{}' -m text | mdcat | less -R", link.url());
+                Command::new("nvim")
+                        .args(["+vsplit", text_cmd.as_str(), p.to_str().unwrap(), "+setf markdown"])
+                        .status()
+                        .expect("failed to execute process");
+
+                let content = std::fs::read_to_string(p)?;
+
+                let new_frontmatter: Frontmatter = content.parse()?;
+                new_frontmatter.update_link(&mut link);
+                store.write(link).await?;
+            }
+
         }
 
         Commands::Refetch => {

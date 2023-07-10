@@ -82,6 +82,7 @@ impl LinkWriter for SqliteStore {
 
         let found_at = link.found_at.map(|xs| xs.timestamp_millis());
         let read_at = link.read_at.map(|xs| xs.timestamp_millis());
+        let published_at = link.published_at.map(|xs| xs.timestamp_millis());
 
         let last_fetched = link.last_fetched.map(|xs| xs.timestamp_millis());
         let last_processed = link.last_processed.map(|xs| xs.timestamp_millis());
@@ -114,6 +115,7 @@ impl LinkWriter for SqliteStore {
                 notes,
                 found_at,
                 read_at,
+                published_at,
                 from_filename,
                 url,
                 image,
@@ -136,6 +138,7 @@ impl LinkWriter for SqliteStore {
                 ?,
                 ?,
                 ?,
+                ?,
                 ?
             ) ON CONFLICT (url) DO UPDATE
                 SET title=excluded.title,
@@ -144,6 +147,7 @@ impl LinkWriter for SqliteStore {
                     notes=excluded.notes,
                     found_at=excluded.found_at,
                     read_at=excluded.read_at,
+                    published_at=excluded.published_at,
                     from_filename=excluded.from_filename,
                     image=excluded.image,
                     src=excluded.src,
@@ -158,6 +162,7 @@ impl LinkWriter for SqliteStore {
             link.notes,
             found_at,
             read_at,
+            published_at,
             link.from_filename,
             link.url,
             link.image,

@@ -310,7 +310,6 @@ mod tests {
 
         let link_a = store.get("https://a.com/").await?;
 
-        dbg!(link_a);
         Ok(())
     }
 

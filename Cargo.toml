@@ -10,6 +10,7 @@ bytes = "1.3.0"
 cacache = { version = "11.6.0", default-features = false, features = ["tokio", "tokio-runtime", "memmap2", "mmap", "libc"] }
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = "4.0.29"
+command-fds = "0.2.2"
 comrak = "0.15.0"
 dirs = "4.0.0"
 eyre = "0.6.8"
@@ -20,9 +21,11 @@ include_dir = "0.7.3"
 indoc = "2.0.1"
 itertools = "0.10.5"
 llm = { git = "https://github.com/rustformers/llm" , branch = "main", optional = true }
+once_cell = "1.18.0"
 pdf-extract = { git = "https://github.com/joepio/pdf-extract", rev = "33767ee434fb2dc26de0c4de41def45efeb444f5", version = "0.7.0" }
 pin-project = "1.0.12"
 rand = "0.8.5"
+regex = "1.9.0"
 reqwest = { version = "0.11.13", features = ["deflate", "gzip", "brotli", "stream"] }
 scraper = "0.13.0"
 serde = { version = "1.0.147", features = ["derive"] }
@@ -30,6 +33,7 @@ serde_json = "1.0.87"
 slug = "0.1.4"
 slugify = "0.1.0"
 sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
+tempfile = "3.6.0"
 tendril = "0.4.3"
 tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
 toml = "0.5.9"

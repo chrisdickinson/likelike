@@ -102,16 +102,6 @@
     },
     "query": "\n            SELECT\n                url,\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                published_at,\n                from_filename,\n                image,\n                src,\n                meta,\n                last_fetched,\n                last_processed,\n                http_headers\n            FROM \"links\" WHERE \"url\" = ?"
   },
-  "525d145902c26750a6912913727bc4a3b0c4155a7f8592c6f79a2f577796b44d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 14
-      }
-    },
-    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                from_filename,\n                url,\n                image,\n                src,\n                meta,\n                last_fetched,\n                last_processed,\n                http_headers\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            ) ON CONFLICT (url) DO UPDATE\n                SET title=excluded.title,\n                    tags=excluded.tags,\n                    via=excluded.via,\n                    notes=excluded.notes,\n                    found_at=excluded.found_at,\n                    read_at=excluded.read_at,\n                    from_filename=excluded.from_filename,\n                    image=excluded.image,\n                    src=excluded.src,\n                    meta=excluded.meta,\n                    last_fetched=excluded.last_fetched,\n                    last_processed=excluded.last_processed,\n                    http_headers=excluded.http_headers\n            "
-  },
   "b591de4a588887dc7e2d6ce639f78dccc2f32e26a00039ab0d59e2931108d2d8": {
     "describe": {
       "columns": [
@@ -213,6 +203,16 @@
       }
     },
     "query": "\n                SELECT\n                    url,\n                    title,\n                    tags,\n                    via,\n                    notes,\n                    found_at,\n                    read_at,\n                    published_at,\n                    from_filename,\n                    image,\n                    src,\n                    meta,\n                    last_fetched,\n                    last_processed,\n                    http_headers\n                FROM \"links\"\n                WHERE url GLOB ?\n                "
+  },
+  "b62308c0d309d9d118b549663f8dfac79cbceba1d200fe96d62dab368cd7b4cb": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 15
+      }
+    },
+    "query": "\n            INSERT INTO \"links\" (\n                title,\n                tags,\n                via,\n                notes,\n                found_at,\n                read_at,\n                published_at,\n                from_filename,\n                url,\n                image,\n                src,\n                meta,\n                last_fetched,\n                last_processed,\n                http_headers\n            ) VALUES (\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?,\n                ?\n            ) ON CONFLICT (url) DO UPDATE\n                SET title=excluded.title,\n                    tags=excluded.tags,\n                    via=excluded.via,\n                    notes=excluded.notes,\n                    found_at=excluded.found_at,\n                    read_at=excluded.read_at,\n                    published_at=excluded.published_at,\n                    from_filename=excluded.from_filename,\n                    image=excluded.image,\n                    src=excluded.src,\n                    meta=excluded.meta,\n                    last_fetched=excluded.last_fetched,\n                    last_processed=excluded.last_processed,\n                    http_headers=excluded.http_headers\n            "
   },
   "d6bae5ba568989f7f7aa00f763076263001fe77ab59f6bc7cffe8fc2ffd4203a": {
     "describe": {

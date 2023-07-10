@@ -1,9 +1,12 @@
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use slugify::slugify;
 use std::collections::HashMap;
 use std::fs::read_to_string;
+use std::str::FromStr;
 use std::{borrow::Cow, fmt::Debug, path::Path};
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 #[derive(Debug)]
 pub struct LinkSource<'a> {
@@ -264,7 +267,7 @@ pub enum Via {
     Freeform(String),
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Frontmatter {
     title: String,
     slug: String,
@@ -272,8 +275,31 @@ pub struct Frontmatter {
     taxonomies: HashMap<String, Vec<String>>,
     extra: FrontmatterExtra,
 
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     notes: String,
+}
+
+static TOML_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"^[[:space:]]*\+\+\+(\r?\n(?s).*?(?-s))\+\+\+[[:space:]]*(?:$|(?:\r?\n((?s).*(?-s))$))",
+    )
+    .unwrap()
+});
+
+impl FromStr for Frontmatter {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let caps = TOML_RE.captures(s).ok_or_else(|| eyre::eyre!(""))?;
+        let front_matter = caps.get(1).ok_or_else(|| eyre::eyre!(""))?.as_str();
+        let notes = caps.get(2).map_or("", |m| m.as_str());
+
+        let mut frontmatter: Frontmatter = toml::from_str(front_matter)?;
+
+        frontmatter.notes = notes.to_string();
+
+        Ok(frontmatter)
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -294,7 +320,17 @@ impl From<Via> for FrontmatterVia {
     }
 }
 
-#[derive(Serialize)]
+impl From<FrontmatterVia> for Via {
+    fn from(v: FrontmatterVia) -> Self {
+        match v {
+            FrontmatterVia::Friend(xs) => Via::Friend(xs),
+            FrontmatterVia::Link(xs) => Via::Link(xs),
+            FrontmatterVia::Freeform(xs) => Via::Freeform(xs),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FrontmatterUrl {
     url: String,
     host: String,
@@ -324,7 +360,7 @@ impl From<url::Url> for FrontmatterUrl {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FrontmatterExtra {
     title: Option<String>,
 
@@ -346,6 +382,61 @@ impl Frontmatter {
 
     pub fn notes(&self) -> &str {
         self.notes.as_str()
+    }
+
+    pub fn update_link(self, link: &mut Link) {
+        let Self {
+            title,
+            slug,
+            date,
+            mut taxonomies,
+            notes,
+            extra: FrontmatterExtra {
+                url,
+                via,
+                found_at,
+                read_at,
+                published_at,
+
+                meta,
+
+                from_filename,
+                image,
+                ..
+            },
+        } = self;
+
+        link.title = if title.trim().is_empty() { None } else { Some(title) };
+        link.via = via.map(Into::into);
+        link.tags = taxonomies.remove("tags").unwrap_or_else(Vec::new);
+        link.notes = if notes.trim().is_empty() { None } else { Some(notes) };
+
+        'found_at: {
+            if let Some(found_at) = found_at {
+                let Some(found_at) = NaiveDate::parse_from_str(found_at.as_str(), "%Y-%m-%d").ok() else { break 'found_at };
+                let Some(found_at) = found_at.and_hms_milli_opt(0, 0, 0, 0) else { break 'found_at };
+                let Some(found_at) = found_at.and_local_timezone(Utc).earliest() else { break 'found_at };
+                link.found_at = Some(found_at);
+            }
+        }
+
+        'read_at: {
+            if let Some(read_at) = read_at {
+                let Some(read_at) = NaiveDate::parse_from_str(read_at.as_str(), "%Y-%m-%d").ok() else { break 'read_at };
+                let Some(read_at) = read_at.and_hms_milli_opt(0, 0, 0, 0) else { break 'read_at };
+                let Some(read_at) = read_at.and_local_timezone(Utc).earliest() else { break 'read_at };
+                link.read_at = Some(read_at);
+            }
+        }
+
+        'published_at: {
+            if let Some(published_at) = published_at {
+                let Some(published_at) = NaiveDate::parse_from_str(published_at.as_str(), "%Y-%m-%d").ok() else { break 'published_at };
+                let Some(published_at) = published_at.and_hms_milli_opt(0, 0, 0, 0) else { break 'published_at };
+                let Some(published_at) = published_at.and_local_timezone(Utc).earliest() else { break 'published_at };
+                link.published_at = Some(published_at);
+            }
+        }
     }
 }
 
