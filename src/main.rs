@@ -10,7 +10,7 @@ use std::{collections::BTreeSet, io::Write};
 use clap::{Parser, ValueEnum};
 use likelike::{
     process_input, ExternalWrap, Frontmatter, HtmlProcessorWrap, HttpClientWrap, LinkReader,
-    LinkSource, LinkWriter, PdfProcessorWrap, SqliteStore,
+    LinkSource, LinkWriter, TextProcessorWrap, PdfProcessorWrap, SqliteStore,
 };
 
 /// Process markdown-formatted linkdump files and store them in a sqlite database.
@@ -188,9 +188,15 @@ async fn main() -> eyre::Result<()> {
         }
 
         Commands::Refetch => {
-            let store = HttpClientWrap::wrap(HtmlProcessorWrap::wrap(PdfProcessorWrap::wrap(
-                ExternalWrap::wrap(store),
-            )));
+            let store = HttpClientWrap::wrap(
+                TextProcessorWrap::wrap(
+                    HtmlProcessorWrap::wrap(
+                        PdfProcessorWrap::wrap(
+                            ExternalWrap::wrap(store),
+                        )
+                    )
+                )
+            );
             let mut links = store.values().await?;
 
             let mut v = Vec::new();

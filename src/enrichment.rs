@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::domain::{Link, LinkSource};
 use crate::LinkReader;
 use chrono::Utc;
@@ -11,7 +13,7 @@ where
     Store: LinkReader + Send + Sync,
 {
     if let Some(mut known_link) = store.get(link.url.as_str()).await? {
-        known_link.read_at = {
+        known_link.read_at = known_link.read_at.or(link.read_at).or_else(|| {
             if let Some(notes) = link.notes() {
                 if !notes.trim().is_empty() {
                     known_link
@@ -24,7 +26,7 @@ where
             } else {
                 None
             }
-        };
+        });
 
         known_link.found_at = known_link
             .found_at
@@ -37,9 +39,9 @@ where
             .or_else(|| link_source.filename_string());
 
         known_link.title = link.title.or(known_link.title);
-        known_link.notes = link.notes;
-        known_link.tags = link.tags;
-        known_link.via = link.via;
+        known_link.notes = link.notes.or(known_link.notes);
+        known_link.tags = link.tags.into_iter().chain(known_link.tags.into_iter()).collect::<HashSet<_>>().into_iter().collect();
+        known_link.via = link.via.or(known_link.via);
 
         link = known_link;
     } else {

@@ -159,6 +159,23 @@ impl Link {
         )
     }
 
+    pub fn is_plaintext(&self) -> bool {
+        matches!(
+            self.http_headers
+                .as_ref()
+                .and_then(|hdrs| hdrs.get("content-type"))
+                .and_then(|xs| xs.last())
+                .map(|xs| xs.as_str()),
+            Some(
+                "text/plain"
+                    | "text/plain;charset=utf-8"
+                    | "text/plain;charset=UTF-8"
+                    | "text/plain; charset=utf-8"
+                    | "text/plain; charset=UTF-8"
+            )
+        )
+    }
+
     pub fn via_mut(&mut self) -> &mut Option<Via> {
         &mut self.via
     }

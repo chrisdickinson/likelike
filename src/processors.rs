@@ -4,9 +4,11 @@ use std::pin::Pin;
 mod html;
 mod http;
 mod pdf;
+mod txt;
 
 pub use html::*;
 pub use http::*;
+pub use txt::*;
 pub use pdf::*;
 
 #[async_trait::async_trait]
