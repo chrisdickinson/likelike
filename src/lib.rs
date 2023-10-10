@@ -139,28 +139,6 @@ fn extract_metadata_from_child_list<'a>(
                 link.via = Some(parse_via(first_child_text["via:".len()..].trim()));
             }
 
-            Some("notes") => {
-                if let Some(child) = list_item_children.next() {
-                    if !matches!(child.data.borrow().value, NodeValue::List(_)) {
-                        continue;
-                    }
-
-                    let notes = itertools::join(
-                        itertools::chain(
-                            link.notes.iter().map(|xs| xs.to_string()),
-                            child
-                                .children()
-                                .flat_map(|list_item| list_item.children())
-                                .filter_map(|node| fmt_cmark(node).ok()),
-                        ),
-                        "\n",
-                    )
-                    .trim()
-                    .to_string();
-
-                    link.notes = if notes.is_empty() { None } else { Some(notes) };
-                }
-            }
             _ => {}
         }
     }
