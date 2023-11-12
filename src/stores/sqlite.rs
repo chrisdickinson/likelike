@@ -62,10 +62,12 @@ impl SqliteStore {
                 .await?;
         }
 
-        sqlx::query(r#"
-            insert into database_version (id, version) values (0, ?) on conflict(id) do update set version = excluded.version
-        "#).bind(migration_count).execute(&mut sqlite)
-            .await?;
+        if migration_count != last_index {
+            sqlx::query(r#"
+                insert into database_version (id, version) values (0, ?) on conflict(id) do update set version = excluded.version
+            "#).bind(migration_count).execute(&mut sqlite)
+                .await?;
+        }
 
         Ok(Self {
             sqlite: Mutex::new(sqlite),
