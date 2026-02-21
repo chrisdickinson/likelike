@@ -5,8 +5,9 @@ edition = "2021"
 
 [dependencies]
 async-stream = "0.3.3"
+axum = "0.8.8"
 async-trait = "0.1.58"
-bytes = "1.3.0"
+bytes = "1.11.0"
 cacache = { version = "11.6.0", default-features = false, features = ["tokio", "tokio-runtime", "memmap2", "mmap", "libc"] }
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = "4.0.29"
@@ -35,8 +36,11 @@ slugify = "0.1.0"
 sqlx = { version = "0.6.2", features = ["offline", "sqlite", "json", "uuid", "chrono", "runtime-tokio-native-tls"] }
 tempfile = "3.6.0"
 tendril = "0.4.3"
-tokio = { version = "1.21.2", features = ["macros", "net", "rt"] }
+tokio = { version = "1.49.0", features = ["macros", "net", "rt", "rt-multi-thread"] }
+tokio-util = "0.7"
+tower-http = { version = "0.6.8", features = ["cors", "fs"] }
 toml = "0.5.9"
 url = { version = "2.3.1", features = ["serde"] }
+urlencoding = "2"
 wildmatch = "2.1.1"
 zstd = "0.12.3"

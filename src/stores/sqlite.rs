@@ -75,6 +75,140 @@ impl SqliteStore {
     }
 }
 
+/// Parameters for paginated link listing.
+pub struct ListParams {
+    pub query: Option<String>,
+    pub tag: Option<String>,
+    pub hidden: Option<bool>,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+impl SqliteStore {
+    /// Counts links matching the given filters.
+    pub async fn count(&self, params: &ListParams) -> eyre::Result<i64> {
+        let mut sqlite = self.sqlite.lock().await;
+        let mut sql = String::from(r#"SELECT COUNT(*) as cnt FROM "links" WHERE 1=1"#);
+        if params.query.is_some() {
+            sql.push_str(r#" AND (url LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%')"#);
+        }
+        if params.tag.is_some() {
+            sql.push_str(r#" AND tags LIKE '%' || ? || '%'"#);
+        }
+        if params.hidden.is_some() {
+            sql.push_str(" AND hidden = ?");
+        }
+
+        let mut q = sqlx::query_scalar::<_, i32>(&sql);
+        if let Some(ref query) = params.query {
+            q = q.bind(query).bind(query);
+        }
+        if let Some(ref tag) = params.tag {
+            q = q.bind(tag);
+        }
+        if let Some(hidden) = params.hidden {
+            q = q.bind(if hidden { 1i64 } else { 0i64 });
+        }
+
+        let count = q.fetch_one(&mut *sqlite).await?;
+        Ok(count as i64)
+    }
+
+    /// Lists links with pagination and optional filters.
+    pub async fn list(&self, params: &ListParams) -> eyre::Result<Vec<Link>> {
+        let mut sqlite = self.sqlite.lock().await;
+        let mut sql = String::from(
+            r#"SELECT url, title, tags, via, notes, found_at, read_at, published_at,
+               from_filename, image, meta, last_fetched, last_processed, hidden
+               FROM "links" WHERE 1=1"#,
+        );
+        if params.query.is_some() {
+            sql.push_str(r#" AND (url LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%')"#);
+        }
+        if params.tag.is_some() {
+            sql.push_str(r#" AND tags LIKE '%' || ? || '%'"#);
+        }
+        if params.hidden.is_some() {
+            sql.push_str(" AND hidden = ?");
+        }
+        sql.push_str(" ORDER BY found_at DESC LIMIT ? OFFSET ?");
+
+        let mut q = sqlx::query(&sql);
+        if let Some(ref query) = params.query {
+            q = q.bind(query).bind(query);
+        }
+        if let Some(ref tag) = params.tag {
+            q = q.bind(tag);
+        }
+        if let Some(hidden) = params.hidden {
+            q = q.bind(if hidden { 1i64 } else { 0i64 });
+        }
+        q = q.bind(params.limit).bind(params.offset);
+
+        let rows = q.fetch_all(&mut *sqlite).await?;
+        let mut links = Vec::with_capacity(rows.len());
+        for row in rows {
+            let link = Link {
+                url: row.get("url"),
+                title: row.get("title"),
+                tags: row
+                    .get::<Option<String>, _>("tags")
+                    .and_then(|t| serde_json::from_str(&t).ok())
+                    .unwrap_or_default(),
+                via: row
+                    .get::<Option<String>, _>("via")
+                    .and_then(|v| serde_json::from_str(&v).ok()),
+                notes: row.get("notes"),
+                found_at: row
+                    .get::<Option<i64>, _>("found_at")
+                    .and_then(|ts| Utc.timestamp_millis_opt(ts).latest()),
+                read_at: row
+                    .get::<Option<i64>, _>("read_at")
+                    .and_then(|ts| Utc.timestamp_millis_opt(ts).latest()),
+                published_at: row
+                    .get::<Option<i64>, _>("published_at")
+                    .and_then(|ts| Utc.timestamp_millis_opt(ts).latest()),
+                from_filename: row.get("from_filename"),
+                image: row.get("image"),
+                meta: row
+                    .get::<Option<String>, _>("meta")
+                    .and_then(|m| serde_json::from_str(&m).ok()),
+                last_fetched: row
+                    .get::<Option<i64>, _>("last_fetched")
+                    .and_then(|ts| Utc.timestamp_millis_opt(ts).latest()),
+                last_processed: row
+                    .get::<Option<i64>, _>("last_processed")
+                    .and_then(|ts| Utc.timestamp_millis_opt(ts).latest()),
+                hidden: row.get::<Option<i64>, _>("hidden").unwrap_or(0) != 0,
+                ..Default::default()
+            };
+            links.push(link);
+        }
+        Ok(links)
+    }
+
+    /// Returns all distinct tags.
+    pub async fn all_tags(&self) -> eyre::Result<Vec<String>> {
+        let mut sqlite = self.sqlite.lock().await;
+        let rows = sqlx::query(r#"SELECT tags FROM "links""#)
+            .fetch_all(&mut *sqlite)
+            .await?;
+
+        let mut tags = std::collections::BTreeSet::new();
+        for row in rows {
+            let raw: String = row.get("tags");
+            if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&raw) {
+                for tag in parsed {
+                    if !tag.is_empty() {
+                        tags.insert(tag);
+                    }
+                }
+            }
+        }
+        Ok(tags.into_iter().collect())
+    }
+}
+
 #[async_trait::async_trait]
 impl LinkWriter for SqliteStore {
     async fn write(&self, link: Link) -> eyre::Result<bool> {
@@ -108,6 +242,8 @@ impl LinkWriter for SqliteStore {
             .filter_map(|src| zstd::encode_all(src.as_slice(), 0).ok())
             .next();
 
+        let hidden = if link.hidden { 1i64 } else { 0i64 };
+
         let results = sqlx::query!(
             r#"
             INSERT INTO "links" (
@@ -125,8 +261,10 @@ impl LinkWriter for SqliteStore {
                 meta,
                 last_fetched,
                 last_processed,
-                http_headers
+                http_headers,
+                hidden
             ) VALUES (
+                ?,
                 ?,
                 ?,
                 ?,
@@ -156,7 +294,8 @@ impl LinkWriter for SqliteStore {
                     meta=excluded.meta,
                     last_fetched=excluded.last_fetched,
                     last_processed=excluded.last_processed,
-                    http_headers=excluded.http_headers
+                    http_headers=excluded.http_headers,
+                    hidden=excluded.hidden
             "#,
             link.title,
             tags,
@@ -172,7 +311,8 @@ impl LinkWriter for SqliteStore {
             meta,
             last_fetched,
             last_processed,
-            http_headers
+            http_headers,
+            hidden
         )
         .execute(&mut *sqlite)
         .await?;
@@ -197,6 +337,7 @@ struct LinkRow {
     last_fetched: Option<i64>,
     last_processed: Option<i64>,
     http_headers: Option<Vec<u8>>,
+    hidden: Option<i64>,
 }
 
 impl TryFrom<LinkRow> for Link {
@@ -258,6 +399,7 @@ impl TryFrom<LinkRow> for Link {
             last_fetched,
             last_processed,
             http_headers,
+            hidden: value.hidden.unwrap_or(0) != 0,
             ..Default::default()
         })
     }
@@ -285,7 +427,8 @@ impl LinkReader for SqliteStore {
                 meta,
                 last_fetched,
                 last_processed,
-                http_headers
+                http_headers,
+                hidden
             FROM "links" WHERE "url" = ?"#,
             link
         )
@@ -295,7 +438,7 @@ impl LinkReader for SqliteStore {
         Ok(Some(value.try_into()?))
     }
 
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a + Send>>> {
         let mut sqlite = self.sqlite.lock().await;
 
         let stream = stream! {
@@ -317,7 +460,8 @@ impl LinkReader for SqliteStore {
                     meta,
                     last_fetched,
                     last_processed,
-                    http_headers
+                    http_headers,
+                    hidden
                 FROM "links"
                 "#,
             )
@@ -359,7 +503,8 @@ impl LinkReader for SqliteStore {
                     meta,
                     last_fetched,
                     last_processed,
-                    http_headers
+                    http_headers,
+                    hidden
                 FROM "links"
                 WHERE url GLOB ?
                 "#,

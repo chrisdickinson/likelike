@@ -133,7 +133,7 @@ impl<T: LinkReader + Send + Sync> LinkReader for HttpClientWrap<T> {
         self.inner.get(link).await
     }
 
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a + Send>>> {
         self.inner.values().await
     }
 }

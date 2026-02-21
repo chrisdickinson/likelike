@@ -15,7 +15,7 @@ use crate::Link;
 #[async_trait::async_trait]
 pub trait LinkReader {
     async fn get(&self, link: &str) -> eyre::Result<Option<Link>>;
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>>;
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a + Send>>>;
     async fn glob<'a, 'b: 'a>(
         &'a self,
         pattern: &'b str,

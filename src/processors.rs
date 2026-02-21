@@ -33,7 +33,7 @@ where
         }
     }
 
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a + Send>>> {
         let links = self.inner().values().await?;
         let links = async_stream::stream! {
             for await link in links {

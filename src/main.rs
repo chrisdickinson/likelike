@@ -111,6 +111,12 @@ enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
     },
+
+    /// Start a local web server for browsing and editing links.
+    Serve {
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+    },
 }
 
 #[tokio::main]
@@ -507,7 +513,7 @@ async fn main() -> eyre::Result<()> {
             let mut links = store.values().await?;
 
             while let Some(link) = links.next().await {
-                if link.read_at().is_none() {
+                if link.read_at().is_none() || link.hidden() {
                     continue;
                 }
 
@@ -556,6 +562,11 @@ async fn main() -> eyre::Result<()> {
                     eprintln!("{:?}", link);
                 }
             }
+        }
+
+        Commands::Serve { port } => {
+            let store = std::sync::Arc::new(store);
+            likelike::server::serve(store, port).await?;
         }
     }
 

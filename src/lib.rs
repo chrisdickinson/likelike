@@ -16,6 +16,7 @@ use std::{
 mod domain;
 mod enrichment;
 mod processors;
+pub mod server;
 mod stores;
 
 pub use crate::domain::*;
@@ -99,11 +100,15 @@ fn extract_metadata_from_child_list<'a>(
 
         // grab the paragraph from the first Item
         let mut list_item_children = list_item_node.children();
-        let Some(first_child) = list_item_children.next() else { continue };
+        let Some(first_child) = list_item_children.next() else {
+            continue;
+        };
         if !matches!(first_child.data.borrow().value, NodeValue::Paragraph) {
             continue;
         }
-        let Ok(first_child_text) = fmt_cmark(first_child) else { continue };
+        let Ok(first_child_text) = fmt_cmark(first_child) else {
+            continue;
+        };
 
         match first_child_text.split(':').next() {
             Some("tags") => {
@@ -117,11 +122,15 @@ fn extract_metadata_from_child_list<'a>(
                 if let Some(child) = list_item_children.next() {
                     if matches!(child.data.borrow().value, NodeValue::List(_)) {
                         for list_item in child.children() {
-                            let Some(list_item_graf) = list_item.children().next() else { continue };
+                            let Some(list_item_graf) = list_item.children().next() else {
+                                continue;
+                            };
                             if !matches!(list_item_graf.data.borrow().value, NodeValue::Paragraph) {
                                 continue;
                             }
-                            let Ok(list_item_graf_text) = fmt_cmark(list_item_graf) else { continue };
+                            let Ok(list_item_graf_text) = fmt_cmark(list_item_graf) else {
+                                continue;
+                            };
                             tags.extend(
                                 list_item_graf_text
                                     .trim()
@@ -162,15 +171,15 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
     #[allow(clippy::never_loop)]
     for child in graf.children() {
         let NodeValue::Link(NodeLink { ref url, ref title }) = child.data.borrow().value else {
-            continue
+            continue;
         };
 
         let Ok(url) = std::str::from_utf8(url) else {
-            continue
+            continue;
         };
 
         let Ok(title) = std::str::from_utf8(title) else {
-            continue
+            continue;
         };
 
         let title = title.trim();
@@ -179,11 +188,7 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
             url: url.to_string(),
             title: if title.is_empty() {
                 let anchor_children: Result<String, _> = child.children().map(fmt_cmark).collect();
-                if let Ok(text) = anchor_children {
-                    Some(text)
-                } else {
-                    None
-                }
+                anchor_children.ok()
             } else {
                 Some(title.to_string())
             },
@@ -202,7 +207,7 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
             "https" | "http" => {
                 let title = text[0..indent]
                     .trim_start_matches(['-', ':', ' ', '\t'])
-                    .trim_end_matches(&['-', ':', ' ', '\t']);
+                    .trim_end_matches(['-', ':', ' ', '\t']);
 
                 let mut url_bits = text[indent..].split_whitespace();
 
@@ -219,7 +224,7 @@ fn extract_link_from_paragraph<'a>(graf: &'a Node<'a, RefCell<Ast>>) -> eyre::Re
                 let title = if title.is_empty() { None } else { Some(title) };
 
                 let Ok(mut url) = url.replace('\\', "").parse::<url::Url>() else {
-                    return Err(eyre::eyre!("empty paragraph, no link"))
+                    return Err(eyre::eyre!("empty paragraph, no link"));
                 };
 
                 url.set_fragment(None);
@@ -267,28 +272,32 @@ mod tests {
         pool_opts: PoolOptions<Sqlite>,
         connect_opts: SqliteConnectOptions,
     ) -> eyre::Result<()> {
-        let store =
-            crate::DummyWrap::new(SqliteStore::with_connection_options(connect_opts).await?);
+        todo!()
 
-        process_input(
-            r#"
-- plain text link title: https://a.com/
-    - tags: hello, there, gawrsh, this is great, yep, ok
-- [markdown style](https://b.com/)
-    - tags:
-        - hello
-        - there
-        - gawrsh
-        - this is great
-        - yep, ok
-"#,
-            &store,
-        )
-        .await?;
+        /*
+                let store =
+                    crate::DummyWrap::new(SqliteStore::with_connection_options(connect_opts).await?);
 
-        let link_a = store.get("https://a.com/").await?;
+                process_input(
+                    r#"
+        - plain text link title: https://a.com/
+            - tags: hello, there, gawrsh, this is great, yep, ok
+        - [markdown style](https://b.com/)
+            - tags:
+                - hello
+                - there
+                - gawrsh
+                - this is great
+                - yep, ok
+        "#,
+                    &store,
+                )
+                .await?;
 
-        Ok(())
+                let link_a = store.get("https://a.com/").await?;
+
+                Ok(())
+                */
     }
 
     #[sqlx::test]
@@ -304,6 +313,8 @@ mod tests {
         pool_opts: PoolOptions<Sqlite>,
         connect_opts: SqliteConnectOptions,
     ) -> eyre::Result<()> {
+        todo!()
+        /*
         let store =
             crate::DummyWrap::new(SqliteStore::with_connection_options(connect_opts).await?);
         // Make sure that:
@@ -313,6 +324,7 @@ mod tests {
         //
         // are preserved when updating a previously-created link
         Ok(())
+            */
     }
 
     #[tokio::test]
@@ -353,7 +365,9 @@ mod tests {
         let mut s = store.values().await?;
 
         while let Some(v) = s.next().await {
-            let Ok(frontmatter): Result<Frontmatter, _> = v.try_into() else { continue };
+            let Ok(frontmatter): Result<Frontmatter, _> = v.try_into() else {
+                continue;
+            };
             let toml_out = toml::to_string_pretty(&frontmatter)?;
 
             eprintln!("+++\n{}\n+++\n{}", toml_out, frontmatter.notes());

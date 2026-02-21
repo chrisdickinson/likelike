@@ -27,7 +27,7 @@ impl LinkReader for InMemoryStore {
         Ok(data.get(link).cloned())
     }
 
-    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a>>> {
+    async fn values<'a>(&'a self) -> eyre::Result<Pin<Box<dyn Stream<Item = Link> + 'a + Send>>> {
         let data = self.data.lock().await;
 
         // This "collect()" seems to be doing something for us, since implementing clippy's suggestion

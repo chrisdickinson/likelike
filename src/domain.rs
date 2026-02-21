@@ -107,6 +107,8 @@ pub struct Link {
     pub(crate) last_processed: Option<DateTime<Utc>>,
 
     pub(crate) http_headers: Option<HashMap<String, Vec<String>>>,
+
+    pub(crate) hidden: bool,
 }
 
 impl Link {
@@ -275,6 +277,14 @@ impl Link {
     pub fn meta(&self) -> Option<&HashMap<String, Vec<String>>> {
         self.meta.as_ref()
     }
+
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
+    pub fn hidden_mut(&mut self) -> &mut bool {
+        &mut self.hidden
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -388,6 +398,7 @@ pub struct FrontmatterExtra {
     image: Option<String>,
     url: FrontmatterUrl,
     via: Option<FrontmatterVia>,
+    hidden: bool,
 
     meta: HashMap<String, String>,
 }
@@ -414,6 +425,7 @@ impl Frontmatter {
                 found_at,
                 read_at,
                 published_at,
+                hidden,
 
                 meta,
 
@@ -425,6 +437,7 @@ impl Frontmatter {
 
         link.title = if title.trim().is_empty() { None } else { Some(title) };
         link.via = via.map(Into::into);
+        link.hidden = hidden;
         link.tags = taxonomies.remove("tags").unwrap_or_else(Vec::new);
         link.notes = if notes.trim().is_empty() { None } else { Some(notes) };
 
@@ -507,6 +520,7 @@ impl TryFrom<Link> for Frontmatter {
 
                 from_filename: link.from_filename,
                 image: link.image,
+                hidden: link.hidden,
             },
         })
     }
