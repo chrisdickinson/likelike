@@ -39,7 +39,7 @@ tendril = "0.4.3"
 tokio = { version = "1.49.0", features = ["macros", "net", "rt", "rt-multi-thread"] }
 tokio-util = "0.7"
 tower-http = { version = "0.6.8", features = ["cors", "fs"] }
-toml = "0.5.9"
+toml = "1.0.3"
 url = { version = "2.3.1", features = ["serde"] }
 urlencoding = "2"
 wildmatch = "2.1.1"
